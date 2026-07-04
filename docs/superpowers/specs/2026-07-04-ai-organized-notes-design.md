@@ -19,7 +19,10 @@ Upgrade notes-mcp so the AI can act as the user's note librarian:
   semantic search, reads it, offers the same discuss/develop engagement, and
   appends the new discussion's summary to the note.
 
-Notes are living documents that accumulate thinking over time.
+Notes are living documents that accumulate thinking over time — via
+**append-only versioning**: files are never modified or deleted through MCP;
+every change creates a new version file, and the newest version of a note is
+authoritative ("current knowledge wins").
 
 ## Scope
 
@@ -27,10 +30,11 @@ Notes are living documents that accumulate thinking over time.
 notes, recency listing, existing editing tools retained, behavior workflows
 via the user's global CLAUDE.md.
 
-**Out (explicitly):** the journal/memories layer (`process_thoughts`,
-write-once entries, memory folders) and dual storage scopes — all notes live
-in the single user notes folder, as today. Also out: vector databases, cloud
-embedding APIs.
+**Out (explicitly):** the journal/memories layer (`process_thoughts`, memory
+folders, AI self-journaling) and dual storage scopes — all notes live in the
+single user notes folder, as today. Also out: vector databases, cloud
+embedding APIs. (Their append-only, never-modify file discipline IS adopted —
+but applied to the user's notes as versioning, not to an AI journal.)
 
 ## Architecture
 
@@ -50,6 +54,10 @@ src/notes_mcp/
 ```
 
 - No migration, no new folders. `~/.notesrc` (`notes_folder`) keeps working.
+- **Versioning:** a note's identity is its slug. Files sharing a slug are
+  versions of the same note; the one with the newest timestamp is the
+  current version. The existing `_find_note` (newest-first match) already
+  resolves titles to the current version. Older files are never touched.
 - Note frontmatter: existing `tags` plus new `category` — one of `feelings`,
   `project_notes`, `user_context`, `technical_insights`, `world_knowledge` —
   chosen by the AI when saving (optional: a note may have no category).
@@ -59,24 +67,36 @@ src/notes_mcp/
 
 ## MCP Tools
 
-### Note tools (existing)
+### Note tools (copy-on-write semantics)
 
-`show_note`, `delete_note`, `tag_note`, `append_note`, `replace_section`,
-`insert_after_heading`, `list_notes`, `count_notes`: unchanged behavior.
+**The wall (enforced by omission, like private-journal-mcp):** no MCP tool
+modifies or deletes an existing file. `delete_note` is REMOVED from the MCP
+server (it stays in `core.py`/CLI as the user's manual escape hatch).
 
 - `create_note` gains an optional `category` argument, written into
-  frontmatter (implemented in the server layer alongside `core.create_note`,
-  or via the existing frontmatter helpers).
-- After any note write, re-embed and update its `.embedding`; after
-  `delete_note`, remove its `.embedding`.
+  frontmatter. Creating a title whose slug already exists creates a new
+  version of that note (same slug, new timestamp) — this is the intended way
+  to supersede.
+- Editing tools (`append_note`, `replace_section`, `insert_after_heading`,
+  `tag_note`) keep their names and interface, but are reimplemented
+  copy-on-write in the server layer: read the current version, apply the
+  change, save the result as a NEW version file. The original is untouched.
+- `show_note` returns the current (newest) version — existing behavior.
+- `list_notes` / `count_notes` report current versions (dedupe by slug),
+  with a version count per note.
+- After any version write, embed the new file. Old versions keep their
+  embeddings (they remain searchable as history).
 - `search_notes` (keyword) is REMOVED from the MCP server, replaced by
   `search` below. The function stays in `core.py` for the CLI.
 
 ### `search(query, limit=10)` — NEW
 
-Semantic search over all notes. Embeds the query, ranks all `.embedding`
-vectors by cosine similarity, returns top `limit`: filename, date, title,
-category, similarity score, snippet.
+Semantic search over ALL files — current and historical versions. Embeds the
+query, ranks all `.embedding` vectors by cosine similarity, returns top
+`limit`: filename, date, title, category, similarity score, snippet, and a
+version marker: `current` or `older version (superseded YYYY-MM-DD)`.
+**Current knowledge wins:** the tool description instructs the AI to treat
+the current version as authoritative and older versions as history/context.
 
 ### `list_recent(days=7)` — NEW
 
@@ -124,13 +144,18 @@ Theme: never lose a note.
 - Corrupt/missing `.embedding`: regenerate from the note.
 - Invalid `category` value: save anyway without category, mention it in the
   response (never lose content over metadata).
+- Two versions in the same second (same slug, same timestamp): append `-2`
+  to the filename rather than overwrite.
 
 ## Testing
 
 - pytest, existing pattern: notes folder pointed at a temp dir (as
   `test_core.py` already does).
 - Unit: category frontmatter written on create, category coexists with tags,
-  recency filter, re-embed on note edit, embedding cleanup on delete.
+  recency filter, copy-on-write editing (original file byte-identical after
+  an append/replace/tag; new version contains the change), current-version
+  resolution by slug, list/count dedupe with version counts, same-second
+  version collision suffix, new version embedded on write.
 - Search: fake embedder (stub with fixed vectors) for fast, offline,
   deterministic ranking tests, including model-mismatch regeneration and
   backfill of embedding-less notes.
@@ -145,6 +170,9 @@ Theme: never lose a note.
 ## Build Order (suggested)
 
 1. `category` frontmatter on create + `list_recent`
-2. `embeddings.py` + embedding-on-write + `search` + self-healing + remove
+2. Copy-on-write versioning: reimplement editing tools as new-version writes,
+   current-version resolution, list/count dedupe, remove `delete_note` and
    `search_notes` from the server
-3. README: recommended global-CLAUDE.md snippet (save flow + recall flow)
+3. `embeddings.py` + embedding-on-write + `search` with version markers +
+   self-healing
+4. README: recommended global-CLAUDE.md snippet (save flow + recall flow)
