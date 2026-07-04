@@ -42,7 +42,6 @@ APIs.
 ```
 src/notes_mcp/
   core.py        # legacy note ops for the CLI; glob widened to subfolders
-  memory... (none — no memory module)
   embeddings.py  # NEW: fastembed wrapper, cosine similarity, semantic search
   notes_store.py # NEW: dated-folder entry writing, listing, reading
   server.py      # REPLACED tool surface: create_note, search, list_recent, read_note
