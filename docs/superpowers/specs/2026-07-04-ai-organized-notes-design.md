@@ -32,20 +32,23 @@ reading dated results, not a mechanical link.
 recency listing, path-based note reading, behavior workflows via the user's
 global CLAUDE.md.
 
-**Out (explicitly):** editing/deleting/tagging tools on MCP, note titles as
-lookup keys, slugs, version links (`supersedes`), dual storage scopes, the AI
-self-journaling layer (`process_thoughts`), vector databases, cloud embedding
-APIs.
+**Out (explicitly):** the CLI (deleted), editing/deleting/tagging tools,
+note titles as lookup keys, slugs, version links (`supersedes`), dual
+storage scopes, the AI self-journaling layer (`process_thoughts`), vector
+databases, cloud embedding APIs.
 
 ## Architecture
 
+MCP-only. `core.py` and `cli.py` are DELETED, along with the `notes` console
+script in `pyproject.toml` (deployment note: `uv tool uninstall` the old CLI
+and remove the Notes CLI section from the user's global CLAUDE.md). The
+manual escape hatch is the filesystem itself — notes are plain markdown.
+
 ```
 src/notes_mcp/
-  core.py        # legacy note ops for the CLI; glob widened to subfolders
-  embeddings.py  # NEW: fastembed wrapper, cosine similarity, semantic search
   notes_store.py # NEW: dated-folder entry writing, listing, reading
-  server.py      # REPLACED tool surface: create_note, search, list_recent, read_note
-  cli.py         # unchanged commands (manual escape hatch, incl. delete)
+  embeddings.py  # NEW: fastembed wrapper, cosine similarity, semantic search
+  server.py      # tool surface: create_note, search, list_recent, read_note
 ```
 
 ## Storage (their structure)
@@ -83,9 +86,9 @@ src/notes_mcp/
 
 All previous note tools (`show_note`, `append_note`, `replace_section`,
 `insert_after_heading`, `tag_note`, `delete_note`, `list_notes`,
-`count_notes`, `search_notes`) are REMOVED from the MCP server. Editing and
-deletion are impossible by omission — the wall. `core.py` keeps them for the
-CLI (the user's manual escape hatch).
+`count_notes`, `search_notes`) are REMOVED entirely, along with the CLI.
+Editing and deletion are impossible by omission — the wall. Manual file
+management happens directly on the filesystem.
 
 ### `create_note(content, category=None, title=None)`
 
@@ -157,8 +160,7 @@ Theme: never lose a note.
 - Search: fake embedder (fixed vectors) for deterministic ranking, legacy
   backfill, model-mismatch regeneration.
 - One optional integration test with real fastembed, marked slow/skippable.
-- Existing `test_core.py` keeps passing (CLI behavior; glob widened to see
-  dated subfolders is the only intended change).
+- `test_core.py` is DELETED with `core.py`; the new suite fully replaces it.
 
 ## Dependencies
 
@@ -167,9 +169,9 @@ Theme: never lose a note.
 ## Build Order (suggested)
 
 1. `notes_store.py`: dated-folder entry writing + `create_note` +
-   `list_recent` + `read_note` with path guard; strip old tools from server
+   `list_recent` + `read_note` with path guard; new server tool surface;
+   delete `core.py`, `cli.py`, `test_core.py`, and the console-script entry
 2. `embeddings.py` + embedding-on-write + `search` + self-healing/backfill
-3. CLI compatibility: widen `core.py` globs to subfolders (list/delete work
-   on new entries)
-4. README: global-CLAUDE.md snippet (save flow, recall flow, update
-   discipline)
+3. README rewrite + global-CLAUDE.md snippet (save flow, recall flow, update
+   discipline); deployment: `uv tool uninstall` old CLI, update user's
+   CLAUDE.md Notes section
