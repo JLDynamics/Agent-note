@@ -2,177 +2,175 @@
 
 **Date:** 2026-07-04
 **Status:** Approved pending final review
-**Inspired by:** category frontmatter and semantic search from
-[private-journal-mcp](https://github.com/obra/private-journal-mcp). Its
-memory/journal layer and dual storage scopes are deliberately NOT adopted —
-this is a private note-taking system for the user, with the AI as organizer.
+**Model:** append-only notes with semantic recall, adapted from
+[private-journal-mcp](https://github.com/obra/private-journal-mcp)'s file
+structure and search — applied to a private user note system (no AI
+self-journaling layer, single user scope).
 
 ## Goal
 
-Upgrade notes-mcp so the AI can act as the user's note librarian:
+The AI is the user's note librarian over an append-only store:
 
 - **Save flow:** user asks to save anything (idea, learning, text, linked
-  article). The AI gathers the content, picks a category, saves the note with
-  frontmatter, then offers to discuss and develop the idea; the discussion
-  summary is appended to the same note.
+  article). The AI gathers content, picks a category, creates a note, then
+  offers to discuss and develop the idea. When the discussion finishes, the
+  AI creates a NEW note containing the full updated context.
 - **Recall flow:** user asks about something saved. The AI finds it via
-  semantic search, reads it, offers the same discuss/develop engagement, and
-  appends the new discussion's summary to the note.
+  semantic search (which returns current and past similar notes with dates),
+  treats the newest content as authoritative, offers the same
+  discuss/develop engagement, and writes the outcome as a new complete note.
 
-Notes are living documents that accumulate thinking over time — via
-**append-only versioning**: files are never modified or deleted through MCP;
-every change creates a new version file, and the newest version of a note is
-authoritative ("current knowledge wins").
+**Update model — no edits, no links:** notes are never modified, deleted, or
+explicitly linked. An update is a new note carrying the COMPLETE updated
+context (never just the delta). Recency resolves conflicts: when search
+returns overlapping content, newest wins — a judgment the AI makes by
+reading dated results, not a mechanical link.
 
 ## Scope
 
-**In:** AI classification with category frontmatter, semantic search over
-notes, recency listing, existing editing tools retained, behavior workflows
-via the user's global CLAUDE.md.
+**In:** append-only note creation with category frontmatter, semantic search,
+recency listing, path-based note reading, behavior workflows via the user's
+global CLAUDE.md.
 
-**Out (explicitly):** the journal/memories layer (`process_thoughts`, memory
-folders, AI self-journaling) and dual storage scopes — all notes live in the
-single user notes folder, as today. Also out: vector databases, cloud
-embedding APIs. (Their append-only, never-modify file discipline IS adopted —
-but applied to the user's notes as versioning, not to an AI journal.)
+**Out (explicitly):** editing/deleting/tagging tools on MCP, note titles as
+lookup keys, slugs, version links (`supersedes`), dual storage scopes, the AI
+self-journaling layer (`process_thoughts`), vector databases, cloud embedding
+APIs.
 
 ## Architecture
 
 ```
 src/notes_mcp/
-  core.py        # note storage/editing — UNCHANGED
+  core.py        # legacy note ops for the CLI; glob widened to subfolders
+  memory... (none — no memory module)
   embeddings.py  # NEW: fastembed wrapper, cosine similarity, semantic search
-  server.py      # note tools + category support + semantic search + list_recent
-  cli.py         # unchanged
+  notes_store.py # NEW: dated-folder entry writing, listing, reading
+  server.py      # REPLACED tool surface: create_note, search, list_recent, read_note
+  cli.py         # unchanged commands (manual escape hatch, incl. delete)
 ```
 
-## Storage
+## Storage (their structure)
 
 ```
-~/.notes/                  # existing folder, existing format
-  {timestamp}-{slug}.md
+~/.notes/                        # existing root; ~/.notesrc still honored
+  2026-05-14-...-my-first-note.md   # legacy flat notes — left in place, searchable
+  2026-07-04/
+    14-30-52.md                  # note entry
+    14-30-52.embedding           # companion vector
 ```
 
-- No migration, no new folders. `~/.notesrc` (`notes_folder`) keeps working.
-- **Versioning:** a note's identity is its slug. Files sharing a slug are
-  versions of the same note; the one with the newest timestamp is the
-  current version. The existing `_find_note` (newest-first match) already
-  resolves titles to the current version. Older files are never touched.
-- Note frontmatter: existing `tags` plus new `category` — one of `feelings`,
-  `project_notes`, `user_context`, `technical_insights`, `world_knowledge` —
-  chosen by the AI when saving (optional: a note may have no category).
-  Category is a label only; it does not affect where the note is stored.
-- Companion `.embedding` file beside every note: JSON with `model` name and
-  `vector`.
+- New notes: dated folder `YYYY-MM-DD/`, filename `HH-MM-SS.md` (append `-2`
+  on same-second collision). No slug — filenames are timestamps.
+- Entry format: YAML frontmatter + markdown body:
 
-## MCP Tools
+  ```
+  ---
+  title: "2:30:52 PM - July 4, 2026"   # display only; AI may set a better one
+  date: 2026-07-04T14:30:52
+  category: user_context               # optional; one of the five below
+  tags: []                             # optional
+  ---
 
-### Note tools (copy-on-write semantics)
+  Full note content...
+  ```
 
-**The wall (enforced by omission, like private-journal-mcp):** no MCP tool
-modifies or deletes an existing file. `delete_note` is REMOVED from the MCP
-server (it stays in `core.py`/CLI as the user's manual escape hatch).
+- `category`: `feelings`, `project_notes`, `user_context`,
+  `technical_insights`, `world_knowledge` (labels only).
+- Companion `.embedding` JSON beside every note: `model` name + `vector`.
+- Legacy flat notes are indexed by the same search (embeddings backfilled by
+  self-healing); they are never modified.
 
-- `create_note` gains an optional `category` argument, written into
-  frontmatter. Creating a title whose slug already exists creates a new
-  version of that note (same slug, new timestamp) — this is the intended way
-  to supersede.
-- Editing tools (`append_note`, `replace_section`, `insert_after_heading`,
-  `tag_note`) keep their names and interface, but are reimplemented
-  copy-on-write in the server layer: read the current version, apply the
-  change, save the result as a NEW version file. The original is untouched.
-- `show_note` returns the current (newest) version — existing behavior.
-- `list_notes` / `count_notes` report current versions (dedupe by slug),
-  with a version count per note.
-- After any version write, embed the new file. Old versions keep their
-  embeddings (they remain searchable as history).
-- `search_notes` (keyword) is REMOVED from the MCP server, replaced by
-  `search` below. The function stays in `core.py` for the CLI.
+## MCP Tools (complete surface — four tools)
 
-### `search(query, limit=10)` — NEW
+All previous note tools (`show_note`, `append_note`, `replace_section`,
+`insert_after_heading`, `tag_note`, `delete_note`, `list_notes`,
+`count_notes`, `search_notes`) are REMOVED from the MCP server. Editing and
+deletion are impossible by omission — the wall. `core.py` keeps them for the
+CLI (the user's manual escape hatch).
 
-Semantic search over ALL files — current and historical versions. Embeds the
-query, ranks all `.embedding` vectors by cosine similarity, returns top
-`limit`: filename, date, title, category, similarity score, snippet, and a
-version marker: `current` or `older version (superseded YYYY-MM-DD)`.
-**Current knowledge wins:** the tool description instructs the AI to treat
-the current version as authoritative and older versions as history/context.
+### `create_note(content, category=None, title=None)`
 
-### `list_recent(days=7)` — NEW
+Creates a new entry in today's dated folder, embeds it. Tool description
+carries the update discipline: "To update existing knowledge, write a new
+note containing the complete updated context — never a fragment."
 
-Notes from the last `days` days, newest first, with date/title/category.
-(Derived from the timestamp in the filename.)
+### `search(query, limit=10)`
+
+Semantic search over ALL notes (new-style and legacy). Returns per result:
+path, date, title, category, similarity score, snippet. Description
+instructs: results may include older notes on the same topic — newest
+content wins; read dates carefully.
+
+### `list_recent(days=7)`
+
+Notes from the last `days` days, newest first (date from folder/filename;
+legacy notes from filename timestamp).
+
+### `read_note(path)`
+
+Full markdown of one note by path (as returned by search/list_recent).
+**Path guard:** refuses paths outside the notes folder.
 
 ## Behavior layer — user's global CLAUDE.md (deployment step)
 
-The server provides tools; the flows are driven by a standing section in the
-user's global `~/.claude/CLAUDE.md` (NOT the repo's project CLAUDE.md — they
-must apply in every session). The repo README documents the recommended
-snippet. Two flows, mirroring the user's diagrams:
+Flows live in the user's global `~/.claude/CLAUDE.md` (not the repo's project
+CLAUDE.md); the repo README documents the snippet:
 
-**Save flow.** On any save request: gather content (ask a follow-up or fetch
-the linked article if needed) → pick category → `create_note` with category →
-read the note back and offer to discuss, develop, or extend the idea,
-contributing insights → when the discussion finishes, append a summary of the
-conversation to the same note.
+**Save flow.** Gather content (follow-up question or fetch the linked
+article) → pick category → `create_note` → offer to discuss/develop/extend,
+contributing insights → on finish, `create_note` again with the full updated
+context including the discussion summary.
 
-**Recall flow.** On a question about saved content: `search` → read the
-matching note(s) via `show_note` → offer the same discuss/develop/extend
-engagement → when finished, append the new discussion's summary to the same
-note.
+**Recall flow.** `search` → `read_note` the relevant results, newest first,
+newest content authoritative → offer the same engagement → on finish,
+`create_note` with the complete updated context.
+
+**Update discipline.** Never write partial updates; every new note on an
+existing topic must stand alone as the current truth of that topic.
 
 ## Embeddings
 
-- Library: `fastembed` (ONNX, no PyTorch), model `all-MiniLM-L6-v2` (384-dim).
-  One-time ~90 MB model download on first use, then fully offline.
-- Lazy initialization: the model loads on the first tool call that needs it;
-  server startup stays instant.
-- `embeddings.py` exposes `embed_text(text) -> list[float]` and
-  `search(query, candidates) -> ranked results`. Cosine similarity as a plain
-  function (no numpy at this scale).
-- Every `.embedding` records the model name. On search, a missing, corrupt, or
-  model-mismatched embedding is regenerated from the note markdown
-  (self-healing). This also backfills notes created via the CLI or edited by
-  hand, including the user's existing notes on first search.
+- `fastembed` (ONNX, no PyTorch), model `all-MiniLM-L6-v2` (384-dim);
+  one-time ~90 MB download on first use, then offline.
+- Lazy initialization on first use; server startup stays instant.
+- `embeddings.py`: `embed_text(text)` and `search(query, candidates)`;
+  cosine similarity as a plain function.
+- `.embedding` records the model name; missing/corrupt/mismatched embeddings
+  are regenerated from the markdown on search (self-healing — also backfills
+  all legacy notes on first search).
 
 ## Error Handling
 
 Theme: never lose a note.
 
-- Embedding failure (e.g. offline first run): the note still saves; the
-  embedding is backfilled by self-healing on a later search.
-- Corrupt/missing `.embedding`: regenerate from the note.
-- Invalid `category` value: save anyway without category, mention it in the
-  response (never lose content over metadata).
-- Two versions in the same second (same slug, same timestamp): append `-2`
-  to the filename rather than overwrite.
+- Embedding failure: note still saves; backfilled on later search.
+- Corrupt/missing `.embedding`: regenerate.
+- Invalid `category`: save without category, mention it in the response.
+- Same-second collision: `-2` suffix.
+- `read_note` outside the notes folder: refusal message.
 
 ## Testing
 
-- pytest, existing pattern: notes folder pointed at a temp dir (as
-  `test_core.py` already does).
-- Unit: category frontmatter written on create, category coexists with tags,
-  recency filter, copy-on-write editing (original file byte-identical after
-  an append/replace/tag; new version contains the change), current-version
-  resolution by slug, list/count dedupe with version counts, same-second
-  version collision suffix, new version embedded on write.
-- Search: fake embedder (stub with fixed vectors) for fast, offline,
-  deterministic ranking tests, including model-mismatch regeneration and
-  backfill of embedding-less notes.
+- pytest, notes folder pointed at temp dirs.
+- Unit: dated-folder + timestamp filename creation, collision suffix,
+  frontmatter (title/date/category/tags), category validation fallback,
+  recency listing across new-style and legacy files, path guard.
+- Search: fake embedder (fixed vectors) for deterministic ranking, legacy
+  backfill, model-mismatch regeneration.
 - One optional integration test with real fastembed, marked slow/skippable.
-- Existing `test_core.py` suite must keep passing unchanged.
+- Existing `test_core.py` keeps passing (CLI behavior; glob widened to see
+  dated subfolders is the only intended change).
 
 ## Dependencies
 
-- `fastembed` added to `pyproject.toml`. Acceptable for CLI installs for now;
-  revisit as an optional extra if the package is published.
+- `fastembed` added to `pyproject.toml`.
 
 ## Build Order (suggested)
 
-1. `category` frontmatter on create + `list_recent`
-2. Copy-on-write versioning: reimplement editing tools as new-version writes,
-   current-version resolution, list/count dedupe, remove `delete_note` and
-   `search_notes` from the server
-3. `embeddings.py` + embedding-on-write + `search` with version markers +
-   self-healing
-4. README: recommended global-CLAUDE.md snippet (save flow + recall flow)
+1. `notes_store.py`: dated-folder entry writing + `create_note` +
+   `list_recent` + `read_note` with path guard; strip old tools from server
+2. `embeddings.py` + embedding-on-write + `search` + self-healing/backfill
+3. CLI compatibility: widen `core.py` globs to subfolders (list/delete work
+   on new entries)
+4. README: global-CLAUDE.md snippet (save flow, recall flow, update
+   discipline)
