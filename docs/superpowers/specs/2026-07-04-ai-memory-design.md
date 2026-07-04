@@ -82,6 +82,14 @@ BOTH scopes when finding a note by title (user scope first, then project).
 After any note write, re-embed the note and update its `.embedding`. After
 `delete_note`, remove its `.embedding`.
 
+**The wall (write-once memories, enforced by omission):** note tools operate
+only on the flat notes area of each scope and MUST NOT match files under
+`memories/` subfolders (non-recursive glob — the existing `*.md` pattern
+already behaves this way; a test pins it). No tool edits or deletes a memory:
+`process_thoughts` only ever creates new files, and the only memory reader is
+`read_memory_entry`. A wrong memory is corrected by writing a newer entry,
+never by modifying an old one — same model as private-journal-mcp.
+
 `search_notes` (keyword) is REMOVED from the MCP server, replaced by unified
 `search`. The function stays in `core.py` for the CLI.
 
@@ -171,7 +179,8 @@ Theme: never lose a thought.
 
 - pytest, existing pattern: storage pointed at temp folders via monkeypatching.
 - Unit: section→scope routing, category frontmatter, two-scope note lookup
-  (incl. both-scopes collision), memory file format, gitignore append,
+  (incl. both-scopes collision), note tools cannot see/match files under
+  `memories/` (the wall), memory file format, gitignore append,
   filename collision suffix, path guard, recency filter, re-embed on note
   edit, embedding cleanup on note delete.
 - Search: fake embedder (stub with fixed vectors) for fast, offline,
