@@ -71,6 +71,19 @@ Writes one entry per scope that received content (max two files per call).
 Embeds each entry after saving. Tool description documents each section's
 purpose — that description is what drives correct routing by the AI.
 
+### Disambiguation vs. personal notes
+
+Both feature sets coexist, so tool descriptions must state the dividing rule
+explicitly (this is the primary defense against the AI picking the wrong tool):
+
+- `create_note` / `search_notes` etc.: "the user's personal notes — use when
+  the user explicitly asks to save, find, or edit a note."
+- `process_thoughts` / `search_memories` etc.: "the assistant's own memory —
+  use to record or recall your own observations and insights; not for content
+  the user asked to save as a note."
+
+Recommend a matching one-line rule in the user's CLAUDE.md after deployment.
+
 ### `search_memories(query, limit=10, scope="both")`
 
 Semantic search. `scope` is `"project"`, `"user"`, or `"both"`. Embeds the
