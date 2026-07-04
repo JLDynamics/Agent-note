@@ -4,17 +4,17 @@
 **Status:** Approved pending final review
 **Inspired by:** category frontmatter and semantic search from
 [private-journal-mcp](https://github.com/obra/private-journal-mcp). Its
-memory/journal layer is deliberately NOT adopted — this stays a note-taking
-system for the user, with the AI as the organizer.
+memory/journal layer and dual storage scopes are deliberately NOT adopted —
+this is a private note-taking system for the user, with the AI as organizer.
 
 ## Goal
 
 Upgrade notes-mcp so the AI can act as the user's note librarian:
 
 - **Save flow:** user asks to save anything (idea, learning, text, linked
-  article). The AI gathers the content, classifies it — scope (user vs
-  project) and category — saves it with frontmatter, then offers to discuss
-  and develop the idea; the discussion summary is appended to the same note.
+  article). The AI gathers the content, picks a category, saves the note with
+  frontmatter, then offers to discuss and develop the idea; the discussion
+  summary is appended to the same note.
 - **Recall flow:** user asks about something saved. The AI finds it via
   semantic search, reads it, offers the same discuss/develop engagement, and
   appends the new discussion's summary to the note.
@@ -23,76 +23,65 @@ Notes are living documents that accumulate thinking over time.
 
 ## Scope
 
-**In:** dual-scope notes (user + project), AI classification with category
-frontmatter, semantic search over notes, recency listing, existing editing
-tools retained and made scope-aware, behavior workflows via the user's global
-CLAUDE.md.
+**In:** AI classification with category frontmatter, semantic search over
+notes, recency listing, existing editing tools retained, behavior workflows
+via the user's global CLAUDE.md.
 
 **Out (explicitly):** the journal/memories layer (`process_thoughts`,
-write-once entries, memory folders, memory reader) — not wanted. Also out:
-vector databases, cloud embedding APIs.
+write-once entries, memory folders) and dual storage scopes — all notes live
+in the single user notes folder, as today. Also out: vector databases, cloud
+embedding APIs.
 
 ## Architecture
 
 ```
 src/notes_mcp/
-  core.py        # note storage/editing; gains optional folder parameter
+  core.py        # note storage/editing — UNCHANGED
   embeddings.py  # NEW: fastembed wrapper, cosine similarity, semantic search
-  server.py      # scope-aware note tools + semantic search + list_recent
-  cli.py         # unchanged (defaults to user scope, as today)
+  server.py      # note tools + category support + semantic search + list_recent
+  cli.py         # unchanged
 ```
-
-`core.py` functions gain an optional `folder` argument defaulting to the
-current user notes folder — existing behavior and the CLI are unchanged by
-default; the MCP server passes the project folder for project-scoped calls.
 
 ## Storage
 
 ```
-~/.notes/                  # user scope (existing folder, existing format)
-  {timestamp}-{slug}.md
-<project>/.project-notes/  # project scope
+~/.notes/                  # existing folder, existing format
   {timestamp}-{slug}.md
 ```
 
-- No migration: existing notes are already user-scoped. `~/.notesrc`
-  (`notes_folder`) keeps working and relocates the user scope.
+- No migration, no new folders. `~/.notesrc` (`notes_folder`) keeps working.
 - Note frontmatter: existing `tags` plus new `category` — one of `feelings`,
   `project_notes`, `user_context`, `technical_insights`, `world_knowledge` —
   chosen by the AI when saving (optional: a note may have no category).
+  Category is a label only; it does not affect where the note is stored.
 - Companion `.embedding` file beside every note: JSON with `model` name and
   `vector`.
-- Project root = server working directory at startup; if that is the user's
-  home directory or filesystem root, project scope falls back to user scope.
-- `.project-notes/` created on first write; on first creation, append it to
-  the project's `.gitignore` (create if absent, skip if present).
 
 ## MCP Tools
 
-### Note tools (existing, now scope- and category-aware)
+### Note tools (existing)
 
-- `create_note` gains optional `scope` ("user" default | "project") and
-  `category` arguments.
-- Lookup-based tools (`show_note`, `delete_note`, `tag_note`, `append_note`,
-  `replace_section`, `insert_after_heading`) search BOTH scopes by title:
-  user scope first, then project. If a title matches in both, prefer user
-  scope and mention the other match in the response.
-- `list_notes` / `count_notes` cover both scopes with scope labels.
+`show_note`, `delete_note`, `tag_note`, `append_note`, `replace_section`,
+`insert_after_heading`, `list_notes`, `count_notes`: unchanged behavior.
+
+- `create_note` gains an optional `category` argument, written into
+  frontmatter (implemented in the server layer alongside `core.create_note`,
+  or via the existing frontmatter helpers).
 - After any note write, re-embed and update its `.embedding`; after
   `delete_note`, remove its `.embedding`.
 - `search_notes` (keyword) is REMOVED from the MCP server, replaced by
   `search` below. The function stays in `core.py` for the CLI.
 
-### `search(query, limit=10, scope="all")` — NEW
+### `search(query, limit=10)` — NEW
 
-Semantic search over notes. `scope`: `"user"` | `"project"` | `"all"`.
-Embeds the query, ranks all candidate `.embedding` vectors by cosine
-similarity, returns top `limit`: path, scope, date, title, category,
-similarity score, snippet.
+Semantic search over all notes. Embeds the query, ranks all `.embedding`
+vectors by cosine similarity, returns top `limit`: filename, date, title,
+category, similarity score, snippet.
 
-### `list_recent(days=7, scope="all")` — NEW
+### `list_recent(days=7)` — NEW
 
-Notes from the last `days` days, newest first, with scope/date/title/category.
+Notes from the last `days` days, newest first, with date/title/category.
+(Derived from the timestamp in the filename.)
 
 ## Behavior layer — user's global CLAUDE.md (deployment step)
 
@@ -102,11 +91,10 @@ must apply in every session). The repo README documents the recommended
 snippet. Two flows, mirroring the user's diagrams:
 
 **Save flow.** On any save request: gather content (ask a follow-up or fetch
-the linked article if needed) → decide scope (about the user/their life →
-user; about the current project → project) → pick category → `create_note`
-with scope + category → read the note back and offer to discuss, develop, or
-extend the idea, contributing insights → when the discussion finishes, append
-a summary of the conversation to the same note.
+the linked article if needed) → pick category → `create_note` with category →
+read the note back and offer to discuss, develop, or extend the idea,
+contributing insights → when the discussion finishes, append a summary of the
+conversation to the same note.
 
 **Recall flow.** On a question about saved content: `search` → read the
 matching note(s) via `show_note` → offer the same discuss/develop/extend
@@ -134,23 +122,20 @@ Theme: never lose a note.
 - Embedding failure (e.g. offline first run): the note still saves; the
   embedding is backfilled by self-healing on a later search.
 - Corrupt/missing `.embedding`: regenerate from the note.
-- Note title found in both scopes: prefer user scope; mention the other match.
 - Invalid `category` value: save anyway without category, mention it in the
   response (never lose content over metadata).
 
 ## Testing
 
-- pytest, existing pattern: storage pointed at temp folders via monkeypatching.
-- Unit: category frontmatter written/read, scope routing in `create_note`,
-  two-scope lookup (incl. both-scopes collision preference), gitignore
-  append, recency filter, re-embed on note edit, embedding cleanup on delete,
-  home/root fallback for project scope.
+- pytest, existing pattern: notes folder pointed at a temp dir (as
+  `test_core.py` already does).
+- Unit: category frontmatter written on create, category coexists with tags,
+  recency filter, re-embed on note edit, embedding cleanup on delete.
 - Search: fake embedder (stub with fixed vectors) for fast, offline,
-  deterministic ranking tests, including scope filter and model-mismatch
-  regeneration/backfill.
+  deterministic ranking tests, including model-mismatch regeneration and
+  backfill of embedding-less notes.
 - One optional integration test with real fastembed, marked slow/skippable.
-- Existing `test_core.py` suite must keep passing (default-folder behavior
-  unchanged).
+- Existing `test_core.py` suite must keep passing unchanged.
 
 ## Dependencies
 
@@ -159,8 +144,7 @@ Theme: never lose a note.
 
 ## Build Order (suggested)
 
-1. `core.py` folder parameter + scope-aware tools + `category` frontmatter
-2. `list_recent` + two-scope lookup + gitignore handling
-3. `embeddings.py` + embedding-on-write + `search` + self-healing + remove
+1. `category` frontmatter on create + `list_recent`
+2. `embeddings.py` + embedding-on-write + `search` + self-healing + remove
    `search_notes` from the server
-4. README: recommended global-CLAUDE.md snippet (save flow + recall flow)
+3. README: recommended global-CLAUDE.md snippet (save flow + recall flow)
