@@ -83,14 +83,33 @@ def test_search_ranks_semantically(notes_folder):
     assert results[0]["score"] >= results[-1]["score"]
 
 
-def test_search_keyword_rescues_exact_token(notes_folder):
-    # fake_embed gives "OpenClaw" no signal at all — keyword match must find it
+def test_search_keyword_hit_inside_top_n_is_marked(notes_folder):
     notes_store.create_entry("OpenClaw gateway restart instructions")
     notes_store.create_entry("milk food")
     results = embeddings.search("OpenClaw", limit=2, embed_fn=fake_embed,
                                 model_name="fake-model")
     hit = [r for r in results if "OpenClaw" in r["text"]]
-    assert hit and "keyword" in hit[0]["match"]
+    assert hit and hit[0]["match"] == "semantic+keyword"
+
+
+def test_search_keyword_rescue_outside_top_n(notes_folder):
+    # Distractors contain no keyword-signal words: fake_embed scores them
+    # parallel to the query (cosine 1.0). The OpenClaw note is loaded with
+    # "milk" words, pushing its vector away from the query so it falls
+    # OUTSIDE the semantic top-2 — only the keyword rescue can return it.
+    notes_store.create_entry("plain filler text about nothing")
+    notes_store.create_entry("more plain filler words entirely")
+    notes_store.create_entry("OpenClaw gateway milk food milk food milk")
+    results = embeddings.search("OpenClaw", limit=2, embed_fn=fake_embed,
+                                model_name="fake-model")
+    rescued = [r for r in results if "OpenClaw" in r["text"]]
+    assert rescued and rescued[0]["match"] == "keyword"
+    assert len(results) == 3  # top-2 semantic + 1 rescued
+
+
+def test_search_empty_folder_returns_empty(notes_folder):
+    assert embeddings.search("anything", embed_fn=fake_embed,
+                             model_name="fake-model") == []
 
 
 def test_search_category_filter(notes_folder):
