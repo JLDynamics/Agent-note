@@ -93,3 +93,61 @@ def test_parse_frontmatter_unclosed_returns_everything():
     meta, body = notes_store.parse_frontmatter(text)
     assert meta == {}
     assert body == text
+
+
+def _legacy_note(folder, name, text="# Old note\n\nlegacy content\n"):
+    p = folder / name
+    p.write_text(text)
+    return p
+
+
+def test_iter_note_paths_covers_legacy_and_dated(notes_folder):
+    legacy = _legacy_note(notes_folder, "2026-05-14-205701-my-first-note.md")
+    new, _ = notes_store.create_entry("new style", now=FIXED_NOW)
+    paths = notes_store.iter_note_paths()
+    assert legacy in paths and new in paths
+    assert all(p.suffix == ".md" for p in paths)
+
+
+def test_note_date_new_style_and_legacy(notes_folder):
+    new, _ = notes_store.create_entry("x", now=FIXED_NOW)
+    assert notes_store.note_date(new) == FIXED_NOW
+    legacy = _legacy_note(notes_folder, "2026-05-14-205701-my-first-note.md")
+    assert notes_store.note_date(legacy) == datetime(2026, 5, 14, 20, 57, 1)
+
+
+def test_note_date_unparseable_falls_back_to_mtime(notes_folder):
+    weird = _legacy_note(notes_folder, "20260513_225818_my_first_note.md")
+    got = notes_store.note_date(weird)
+    assert got == datetime.fromtimestamp(weird.stat().st_mtime)
+
+
+def test_list_recent_filters_by_days_and_category(notes_folder, monkeypatch):
+    old_now = datetime(2026, 6, 1, 10, 0, 0)
+    notes_store.create_entry("old note", now=old_now)
+    notes_store.create_entry("fresh plain", now=FIXED_NOW)
+    notes_store.create_entry("fresh feeling", category="feelings",
+                             now=datetime(2026, 7, 4, 15, 0, 0))
+    monkeypatch.setattr(notes_store, "_now", lambda: datetime(2026, 7, 5, 9, 0, 0))
+
+    recent = notes_store.list_recent(days=7)
+    texts = [r["text"].strip() for r in recent]
+    assert texts == ["fresh feeling", "fresh plain"]  # newest first, no old note
+
+    only_feelings = notes_store.list_recent(days=7, category="feelings")
+    assert len(only_feelings) == 1
+    assert only_feelings[0]["category"] == "feelings"
+
+
+def test_read_note_returns_content(notes_folder):
+    path, _ = notes_store.create_entry("readable", now=FIXED_NOW)
+    assert "readable" in notes_store.read_note(str(path))
+
+
+def test_read_note_refuses_outside_paths(notes_folder, tmp_path):
+    secret = tmp_path / "secret.txt"
+    secret.write_text("private key")
+    with pytest.raises(ValueError):
+        notes_store.read_note(str(secret))
+    with pytest.raises(ValueError):
+        notes_store.read_note(str(notes_folder / ".." / "secret.txt"))

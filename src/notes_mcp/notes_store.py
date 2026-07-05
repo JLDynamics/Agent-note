@@ -1,5 +1,6 @@
 """Append-only note storage: dated folders, YAML-ish frontmatter."""
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -80,3 +81,60 @@ def create_entry(content, category=None, title=None, now=None):
     lines += ["---", "", content, ""]
     path.write_text("\n".join(lines))
     return path, warning
+
+
+_LEGACY_DATE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})-(\d{2})(\d{2})(\d{2})")
+_NEW_STEM = re.compile(r"^(\d{2})-(\d{2})-(\d{2})(?:-\d+)?$")
+_DAY_DIR = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _now():
+    return datetime.now()
+
+
+def iter_note_paths():
+    return sorted(get_notes_folder().rglob("*.md"))
+
+
+def note_date(path):
+    """Best-effort creation time: dated-folder name, legacy filename, or mtime."""
+    stem_match = _NEW_STEM.match(path.stem)
+    if stem_match and _DAY_DIR.match(path.parent.name):
+        h, m, s = (int(g) for g in stem_match.groups())
+        y, mo, d = (int(x) for x in path.parent.name.split("-"))
+        return datetime(y, mo, d, h, m, s)
+    legacy = _LEGACY_DATE.match(path.name)
+    if legacy:
+        y, mo, d, h, m, s = (int(g) for g in legacy.groups())
+        return datetime(y, mo, d, h, m, s)
+    return datetime.fromtimestamp(path.stat().st_mtime)
+
+
+def note_info(path):
+    meta, body = parse_frontmatter(path.read_text())
+    return {
+        "path": str(path),
+        "date": note_date(path).isoformat(),
+        "title": meta.get("title", path.stem),
+        "category": meta.get("category"),
+        "text": body,
+    }
+
+
+def list_recent(days=7, category=None):
+    from datetime import timedelta
+
+    cutoff = _now() - timedelta(days=days)
+    infos = [note_info(p) for p in iter_note_paths() if note_date(p) >= cutoff]
+    if category:
+        infos = [i for i in infos if i["category"] == category]
+    return sorted(infos, key=lambda i: i["date"], reverse=True)
+
+
+def read_note(path_str):
+    """Read one note by path. Refuses anything outside the notes root."""
+    root = get_notes_folder().resolve()
+    path = Path(path_str).expanduser().resolve()
+    if not path.is_relative_to(root):
+        raise ValueError(f"Refused: {path_str} is outside the notes folder")
+    return path.read_text()
