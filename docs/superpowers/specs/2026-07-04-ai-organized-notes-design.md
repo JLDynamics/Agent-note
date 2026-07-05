@@ -96,17 +96,26 @@ Creates a new entry in today's dated folder, embeds it. Tool description
 carries the update discipline: "To update existing knowledge, write a new
 note containing the complete updated context — never a fragment."
 
-### `search(query, limit=10)`
+### `search(query, limit=10, category=None)`
 
-Semantic search over ALL notes (new-style and legacy). Returns per result:
-path, date, title, category, similarity score, snippet. Description
-instructs: results may include older notes on the same topic — newest
-content wins; read dates carefully.
+Hybrid search over ALL notes (new-style and legacy):
 
-### `list_recent(days=7)`
+- **Semantic:** embed the query, rank by cosine similarity.
+- **Keyword:** case-insensitive substring match on note text; hits are merged
+  into the results (marked `keyword match`) so exact tokens/names the
+  embedding model misses are never lost.
+- `category` optionally filters results to one of the five categories.
+
+Returns per result: path, date, title, category, score/match-type, and the
+FULL note text when the note is under ~1,500 characters (otherwise a
+snippet — use `read_note` for the rest). Description instructs: results may
+include older notes on the same topic — newest content wins; read dates
+carefully.
+
+### `list_recent(days=7, category=None)`
 
 Notes from the last `days` days, newest first (date from folder/filename;
-legacy notes from filename timestamp).
+legacy notes from filename timestamp). `category` optionally filters.
 
 ### `read_note(path)`
 
@@ -158,7 +167,9 @@ Theme: never lose a note.
   frontmatter (title/date/category/tags), category validation fallback,
   recency listing across new-style and legacy files, path guard.
 - Search: fake embedder (fixed vectors) for deterministic ranking, legacy
-  backfill, model-mismatch regeneration.
+  backfill, model-mismatch regeneration, keyword-hit merging (exact token
+  found even when semantic rank is poor), category filter, full-text
+  inclusion under the size threshold vs snippet above it.
 - One optional integration test with real fastembed, marked slow/skippable.
 - `test_core.py` is DELETED with `core.py`; the new suite fully replaces it.
 
@@ -174,4 +185,6 @@ Theme: never lose a note.
 2. `embeddings.py` + embedding-on-write + `search` + self-healing/backfill
 3. README rewrite + global-CLAUDE.md snippet (save flow, recall flow, update
    discipline); deployment: `uv tool uninstall` old CLI, update user's
-   CLAUDE.md Notes section
+   CLAUDE.md Notes section, pre-download the embedding model (run one
+   `embed_text` once at install so the first real search is instant), and
+   optionally `git init` the notes folder for free append-only backup/history
