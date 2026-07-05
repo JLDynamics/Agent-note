@@ -1,12 +1,17 @@
 """Append-only note storage: dated folders, YAML-ish frontmatter."""
 import json
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 CATEGORIES = frozenset(
     ["feelings", "project_notes", "user_context", "technical_insights", "world_knowledge"]
 )
+
+# Notes longer than SNIPPET_LIMIT are returned as SNIPPET_LENGTH-char snippets
+# (single source of truth — embeddings.search uses these too).
+SNIPPET_LIMIT = 1500
+SNIPPET_LENGTH = 300
 
 
 def get_notes_folder():
@@ -14,7 +19,13 @@ def get_notes_folder():
     config_file = Path.home() / ".notesrc"
     default_folder = Path.home() / ".notes"
     if config_file.exists():
-        config = json.loads(config_file.read_text())
+        try:
+            config = json.loads(config_file.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                f"~/.notesrc contains invalid JSON ({exc}). "
+                "Fix or delete the file — notes cannot be saved until then."
+            ) from exc
         folder = Path(config.get("notes_folder", default_folder)).expanduser()
     else:
         folder = default_folder
@@ -79,7 +90,7 @@ def create_entry(content, category=None, title=None, now=None):
     if category:
         lines.append(f"category: {category}")
     lines += ["---", "", content, ""]
-    path.write_text("\n".join(lines))
+    path.write_text("\n".join(lines), encoding="utf-8")
     return path, warning
 
 
@@ -111,7 +122,7 @@ def note_date(path):
 
 
 def note_info(path):
-    meta, body = parse_frontmatter(path.read_text())
+    meta, body = parse_frontmatter(path.read_text(encoding="utf-8"))
     return {
         "path": str(path),
         "date": note_date(path).isoformat(),
@@ -122,12 +133,14 @@ def note_info(path):
 
 
 def list_recent(days=7, category=None):
-    from datetime import timedelta
-
     cutoff = _now() - timedelta(days=days)
     infos = [note_info(p) for p in iter_note_paths() if note_date(p) >= cutoff]
     if category:
         infos = [i for i in infos if i["category"] == category]
+    for info in infos:
+        info["truncated"] = len(info["text"]) > SNIPPET_LIMIT
+        if info["truncated"]:
+            info["text"] = info["text"][:SNIPPET_LENGTH]
     return sorted(infos, key=lambda i: i["date"], reverse=True)
 
 
@@ -137,4 +150,4 @@ def read_note(path_str):
     path = Path(path_str).expanduser().resolve()
     if not path.is_relative_to(root):
         raise ValueError(f"Refused: {path_str} is outside the notes folder")
-    return path.read_text()
+    return path.read_text(encoding="utf-8")

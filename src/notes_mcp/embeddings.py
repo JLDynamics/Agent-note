@@ -30,7 +30,7 @@ def embedding_path(note_path):
 
 def save_embedding(note_path, vector, model_name=MODEL_NAME):
     embedding_path(note_path).write_text(
-        json.dumps({"model": model_name, "vector": vector}))
+        json.dumps({"model": model_name, "vector": vector}), encoding="utf-8")
 
 
 def get_vector(note_path, embed_fn, model_name=MODEL_NAME):
@@ -39,7 +39,7 @@ def get_vector(note_path, embed_fn, model_name=MODEL_NAME):
     emb_file = embedding_path(note_path)
     if emb_file.exists():
         try:
-            data = json.loads(emb_file.read_text())
+            data = json.loads(emb_file.read_text(encoding="utf-8"))
             if (
                 isinstance(data, dict)
                 and data.get("model") == model_name
@@ -64,8 +64,8 @@ def try_embed_note(note_path, embed_fn=None):
         return False
 
 
-SNIPPET_LIMIT = 1500
-SNIPPET_LENGTH = 300
+SNIPPET_LIMIT = notes_store.SNIPPET_LIMIT
+SNIPPET_LENGTH = notes_store.SNIPPET_LENGTH
 
 
 def _result(info, score, match):

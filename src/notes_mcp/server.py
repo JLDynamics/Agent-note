@@ -13,11 +13,9 @@ mcp = FastMCP("notes")
 
 TOOL_NAMES = ("create_note", "search", "list_recent", "read_note")
 
-_CATEGORIES_DOC = ", ".join(sorted(notes_store.CATEGORIES))
-
 
 @mcp.tool()
-def create_note(content: str, category: str = None, title: str = None) -> str:
+def create_note(content: str, category: str | None = None, title: str | None = None) -> str:
     """Save a new note. Notes are append-only: to UPDATE existing knowledge,
     create a new note containing the COMPLETE updated context (never just the
     change) — the newest note on a topic wins. Optional category, one of:
@@ -28,7 +26,7 @@ def create_note(content: str, category: str = None, title: str = None) -> str:
 
 
 @mcp.tool()
-def search(query: str, limit: int = 10, category: str = None) -> str:
+def search(query: str, limit: int = 10, category: str | None = None) -> str:
     """Hybrid semantic + keyword search over ALL notes. Results may include
     older notes on the same topic — read dates carefully: the NEWEST content
     is authoritative, older results are history. Short notes include full
@@ -38,7 +36,7 @@ def search(query: str, limit: int = 10, category: str = None) -> str:
 
 
 @mcp.tool()
-def list_recent(days: int = 7, category: str = None) -> str:
+def list_recent(days: int = 7, category: str | None = None) -> str:
     """List notes from the last N days, newest first. Optional category
     filter (one of: feelings, project_notes, user_context,
     technical_insights, world_knowledge)."""
@@ -51,7 +49,7 @@ def read_note(path: str) -> str:
     list_recent. Only paths inside the notes folder are allowed."""
     try:
         return notes_store.read_note(path)
-    except (ValueError, FileNotFoundError) as exc:
+    except (ValueError, OSError) as exc:
         return f"Refused or not found: {exc}"
 
 

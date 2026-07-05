@@ -160,3 +160,22 @@ def test_read_note_refuses_symlink_escape(notes_folder, tmp_path):
     link.symlink_to(secret)
     with pytest.raises(ValueError):
         notes_store.read_note(str(link))
+
+
+def test_list_recent_truncates_long_notes(notes_folder, monkeypatch):
+    notes_store.create_entry("short one", now=FIXED_NOW)
+    notes_store.create_entry("food " + "x" * 2000, now=datetime(2026, 7, 4, 15, 0, 0))
+    monkeypatch.setattr(notes_store, "_now", lambda: datetime(2026, 7, 5, 9, 0, 0))
+    recent = notes_store.list_recent(days=7)
+    long_note, short_note = recent[0], recent[1]
+    assert long_note["truncated"] is True
+    assert len(long_note["text"]) <= 300
+    assert short_note["truncated"] is False
+    assert short_note["text"].strip() == "short one"
+
+
+def test_notesrc_invalid_json_gives_clear_error(tmp_path, monkeypatch):
+    (tmp_path / ".notesrc").write_text("{ not valid json", encoding="utf-8")
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    with pytest.raises(ValueError, match="notesrc"):
+        notes_store.get_notes_folder()
