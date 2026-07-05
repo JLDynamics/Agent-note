@@ -1,103 +1,83 @@
 # Notes MCP Server
 
-A simple markdown notes app exposed as an [MCP](https://modelcontextprotocol.io) server. Notes are stored as `.md` files in `~/.notes/`, named `{timestamp}-{slug}.md`.
+An append-only, AI-organized note system exposed as an
+[MCP](https://modelcontextprotocol.io) server. The AI is the interface:
+you talk, it files. Notes are markdown in dated folders under `~/.notes/`,
+searchable by meaning via local embeddings (fastembed — nothing leaves
+your machine).
 
-## Project layout
+**Update model:** notes are never edited or deleted. An update is a new
+note carrying the complete updated context; the newest note on a topic
+wins. Old notes remain as searchable history. Manual file management
+(deleting, editing) happens directly on the filesystem — every note is
+plain markdown.
+
+## Layout
 
 ```
-src/notes_mcp/     # installable package
-  core.py          # note storage and operations
-  server.py        # MCP server
-  cli.py           # terminal commands
-tests/             # pytest suite
+~/.notes/
+  2026-07-04/
+    14-30-52.md          # one note
+    14-30-52.embedding   # its search vector (auto-regenerated if lost)
 ```
+
+Configure a different root in `~/.notesrc`: `{"notes_folder": "~/MyNotes"}`.
+
+## Tools
+
+| Tool | Purpose |
+|---|---|
+| `create_note(content, category?, title?)` | Save a new note (append-only) |
+| `search(query, limit?, category?)` | Hybrid semantic + keyword search |
+| `list_recent(days?, category?)` | Recent notes, newest first |
+| `read_note(path)` | Full text of one note (paths from search/list) |
+
+Categories: `feelings`, `project_notes`, `user_context`,
+`technical_insights`, `world_knowledge`.
 
 ## Install
 
 ```bash
-pip install -e .
-# or with dev dependencies:
-uv sync --group dev
+uv sync
+# pre-download the embedding model so the first search is instant:
+uv run python -c "from notes_mcp.embeddings import embed_text; embed_text('warm up')"
 ```
 
-## Run MCP server
-
-```bash
-python -m notes_mcp.server
-```
-
-Or via the MCP CLI:
-
-```bash
-mcp run -m notes_mcp.server
-```
-
-## Tools
-
-The server exposes these MCP tools:
-
-| Tool | Description |
-|---|---|
-| `list_notes` | List all note filenames, newest first |
-| `show_note` | Show full contents of a note by title |
-| `search_notes` | Search note contents for text |
-| `count_notes` | Return total number of notes |
-| `create_note` | Create a new markdown note with title and optional content |
-| `delete_note` | Delete a note by title |
-| `tag_note` | Add a tag to a note's frontmatter |
-| `append_note` | Append text to the end of a note |
-| `replace_section` | Replace the first match of a text block in a note |
-| `insert_after_heading` | Insert content right after a specific heading |
-
-## Command-line tool (CLI)
-
-Install globally with:
-
-```bash
-uv tool install .
-```
-
-Then run commands from any folder:
-
-```bash
-notes create "buy milk"
-notes list
-notes show "buy milk"
-notes search "milk"
-notes delete "buy milk"
-notes --help          # see all commands
-```
-
-## Configuration
-
-By default, notes are saved to `~/.notes`.
-
-To use a different folder, create a file at `~/.notesrc`:
+MCP config (`.mcp.json` or Claude Code settings):
 
 ```json
-{
-  "notes_folder": "~/Documents/MyNotes"
-}
+{"mcpServers": {"notes": {"command": "uv", "args": ["run", "python", "-m", "notes_mcp.server"], "cwd": "<path-to-this-repo>"}}}
 ```
 
-(See `.notesrc.example` in this repo for a sample.)
+Optional: `git init ~/.notes` for free append-only history of every note.
 
-## Storage
+## Recommended global CLAUDE.md section
 
-Notes live in `~/.notes/` by default. Each note is a markdown file with optional YAML frontmatter for tags:
+Replace any old "Notes CLI" section in `~/.claude/CLAUDE.md` with:
 
 ```markdown
----
-tags: [idea, work]
----
+## Notes (MCP)
 
-# My Note
+I manage notes ONLY through the notes MCP tools (create_note, search,
+list_recent, read_note). Notes are append-only.
 
-Content here.
+- **Save flow:** when I ask to save anything (idea, learning, text, or a
+  linked article to summarize): gather the content (ask a follow-up or
+  fetch the article), pick a category, create_note. Then read it back and
+  offer to discuss/develop the idea with your own insights. When the
+  discussion ends, create_note again with the COMPLETE updated context
+  including a summary of the discussion.
+- **Recall flow:** when I ask about something saved: search, read the
+  results newest-first — the newest note on a topic is the truth, older
+  ones are history. Offer the same discuss/develop engagement; on finish,
+  create_note with the complete updated context.
+- **Update discipline:** never save fragments. Every new note on an
+  existing topic must stand alone as the current, complete truth of it.
 ```
 
 ## Tests
 
 ```bash
-pytest
+uv run pytest            # fast suite (fake embeddings)
+uv run pytest -m slow    # real-model integration test (~90 MB download)
 ```
