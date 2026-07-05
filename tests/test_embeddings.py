@@ -63,6 +63,25 @@ def test_get_vector_heals_corrupt_and_model_mismatch(notes_folder):
     assert v != [9.0, 9.0, 9.0]  # regenerated, not trusted
 
 
+def test_get_vector_heals_wrong_shape_json(notes_folder):
+    note, _ = notes_store.create_entry("python code")
+    emb = embeddings.embedding_path(note)
+    for bad in ["null", "[1, 2, 3]",
+                '{"model": "fake-model", "vector": ["a", "b"]}',
+                '{"model": "fake-model"}']:
+        emb.write_text(bad)
+        v = embeddings.get_vector(note, fake_embed, model_name="fake-model")
+        assert v == fake_embed(notes_store.note_info(note)["text"])
+
+
+def test_search_survives_bad_embedding_file(notes_folder):
+    n1, _ = notes_store.create_entry("milk food")
+    embeddings.embedding_path(n1).write_text("null")
+    results = embeddings.search("milk", embed_fn=fake_embed,
+                                model_name="fake-model")
+    assert results and "milk" in results[0]["text"]
+
+
 def test_try_embed_note_never_raises(notes_folder):
     note, _ = notes_store.create_entry("anything")
 

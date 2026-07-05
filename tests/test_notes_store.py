@@ -151,3 +151,12 @@ def test_read_note_refuses_outside_paths(notes_folder, tmp_path):
         notes_store.read_note(str(secret))
     with pytest.raises(ValueError):
         notes_store.read_note(str(notes_folder / ".." / "secret.txt"))
+
+
+def test_read_note_refuses_symlink_escape(notes_folder, tmp_path):
+    secret = tmp_path / "secret.txt"
+    secret.write_text("private")
+    link = notes_folder / "sneaky.md"
+    link.symlink_to(secret)
+    with pytest.raises(ValueError):
+        notes_store.read_note(str(link))

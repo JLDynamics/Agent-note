@@ -40,7 +40,12 @@ def get_vector(note_path, embed_fn, model_name=MODEL_NAME):
     if emb_file.exists():
         try:
             data = json.loads(emb_file.read_text())
-            if data.get("model") == model_name and isinstance(data.get("vector"), list):
+            if (
+                isinstance(data, dict)
+                and data.get("model") == model_name
+                and isinstance(data.get("vector"), list)
+                and all(isinstance(x, (int, float)) for x in data["vector"])
+            ):
                 return data["vector"]
         except (json.JSONDecodeError, OSError):
             pass
