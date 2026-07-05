@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "notes": {
+      "command": "/Users/jack/Documents/Agent-note/.venv/bin/python",
+      "args": ["-m", "notes_mcp.server"]
+    }
+  }
+}
