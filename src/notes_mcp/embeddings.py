@@ -57,3 +57,50 @@ def try_embed_note(note_path, embed_fn=None):
         return True
     except Exception:
         return False
+
+
+SNIPPET_LIMIT = 1500
+SNIPPET_LENGTH = 300
+
+
+def _result(info, score, match):
+    text = info["text"]
+    truncated = len(text) > SNIPPET_LIMIT
+    return {
+        "path": info["path"],
+        "date": info["date"],
+        "title": info["title"],
+        "category": info["category"],
+        "score": round(score, 4),
+        "match": match,
+        "text": text[:SNIPPET_LENGTH] if truncated else text,
+        "truncated": truncated,
+    }
+
+
+def search(query, limit=10, category=None, embed_fn=None, model_name=MODEL_NAME):
+    """Hybrid search: semantic ranking + keyword rescue for exact tokens."""
+    embed_fn = embed_fn or embed_text
+    query_vector = embed_fn(query)
+    needle = query.lower()
+
+    scored = []
+    for path in notes_store.iter_note_paths():
+        info = notes_store.note_info(path)
+        if category and info["category"] != category:
+            continue
+        score = cosine(query_vector, get_vector(path, embed_fn, model_name))
+        keyword = needle in info["text"].lower() or needle in info["title"].lower()
+        scored.append((score, keyword, info))
+
+    scored.sort(key=lambda item: item[0], reverse=True)
+    results = [
+        _result(info, score, "semantic+keyword" if kw else "semantic")
+        for score, kw, info in scored[:limit]
+    ]
+    # keyword rescue: exact-token hits that semantic ranking left out
+    included = {r["path"] for r in results}
+    for score, kw, info in scored[limit:]:
+        if kw and len(results) < limit + 3 and info["path"] not in included:
+            results.append(_result(info, score, "keyword"))
+    return results

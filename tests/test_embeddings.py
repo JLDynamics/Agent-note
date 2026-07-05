@@ -72,3 +72,48 @@ def test_try_embed_note_never_raises(notes_folder):
     assert embeddings.try_embed_note(note, broken_embed) is False
     assert not embeddings.embedding_path(note).exists()
     assert note.exists()  # the note itself is untouched
+
+
+def test_search_ranks_semantically(notes_folder):
+    notes_store.create_entry("milk food milk food shopping")
+    notes_store.create_entry("python code refactoring tips")
+    results = embeddings.search("milk food", embed_fn=fake_embed,
+                                model_name="fake-model")
+    assert "milk" in results[0]["text"]
+    assert results[0]["score"] >= results[-1]["score"]
+
+
+def test_search_keyword_rescues_exact_token(notes_folder):
+    # fake_embed gives "OpenClaw" no signal at all — keyword match must find it
+    notes_store.create_entry("OpenClaw gateway restart instructions")
+    notes_store.create_entry("milk food")
+    results = embeddings.search("OpenClaw", limit=2, embed_fn=fake_embed,
+                                model_name="fake-model")
+    hit = [r for r in results if "OpenClaw" in r["text"]]
+    assert hit and "keyword" in hit[0]["match"]
+
+
+def test_search_category_filter(notes_folder):
+    notes_store.create_entry("feeling great about food", category="feelings")
+    notes_store.create_entry("food inventory list", category="project_notes")
+    results = embeddings.search("food", category="feelings",
+                                embed_fn=fake_embed, model_name="fake-model")
+    assert len(results) == 1
+    assert results[0]["category"] == "feelings"
+
+
+def test_search_long_note_snippet(notes_folder):
+    notes_store.create_entry("food " + "x" * 2000)
+    results = embeddings.search("food", embed_fn=fake_embed,
+                                model_name="fake-model")
+    assert results[0]["truncated"] is True
+    assert len(results[0]["text"]) <= 310
+
+
+def test_search_backfills_legacy_note(notes_folder):
+    legacy = notes_folder / "2026-05-14-205701-groceries.md"
+    legacy.write_text("# Groceries\n\nmilk food milk\n")
+    results = embeddings.search("milk", embed_fn=fake_embed,
+                                model_name="fake-model")
+    assert any("milk" in r["text"] for r in results)
+    assert embeddings.embedding_path(legacy).exists()  # backfilled
