@@ -22,19 +22,24 @@ def get_notes_folder():
 
 
 def parse_frontmatter(text):
-    """Split a note into (meta dict, body). Tolerates missing frontmatter."""
-    if not text.startswith("---\n"):
-        return {}, text
-    end = text.find("\n---", 4)
-    if end == -1:
+    """Split a note into (meta dict, body). Tolerates missing frontmatter.
+
+    Conservative on purpose: if the leading block doesn't look like real
+    frontmatter (every line `key: value` until a closing ---), the whole
+    text is returned as body — never silently drop content."""
+    lines = text.split("\n")
+    if not lines or lines[0].strip() != "---":
         return {}, text
     meta = {}
-    for line in text[4:end].splitlines():
-        if ":" in line:
-            key, _, value = line.partition(":")
-            meta[key.strip()] = value.strip().strip('"')
-    body = text[end + 4:].lstrip("\n")
-    return meta, body
+    for i, line in enumerate(lines[1:], start=1):
+        if line.strip() == "---":
+            body = "\n".join(lines[i + 1:]).lstrip("\n")
+            return meta, body
+        if ":" not in line:
+            return {}, text
+        key, _, value = line.partition(":")
+        meta[key.strip()] = value.strip().strip('"')
+    return {}, text
 
 
 def _default_title(now):

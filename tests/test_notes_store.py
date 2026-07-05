@@ -70,3 +70,26 @@ def test_get_notes_folder_respects_notesrc(tmp_path, monkeypatch):
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     assert notes_store.get_notes_folder() == custom
     assert custom.exists()
+
+
+def test_parse_frontmatter_body_horizontal_rule_preserved(notes_folder):
+    content = "Intro text\n\n---\n\nMore text after a horizontal rule"
+    path, _ = notes_store.create_entry(content, now=FIXED_NOW)
+    meta, body = notes_store.parse_frontmatter(path.read_text())
+    assert "More text after a horizontal rule" in body
+    assert "Intro text" in body
+    assert meta["date"] == "2026-07-04T14:30:52"
+
+
+def test_parse_frontmatter_leading_rule_is_not_frontmatter():
+    text = "---\n\nJust a doc starting with a horizontal rule\n---\nmore\n"
+    meta, body = notes_store.parse_frontmatter(text)
+    assert meta == {}
+    assert body == text  # nothing swallowed
+
+
+def test_parse_frontmatter_unclosed_returns_everything():
+    text = "---\ntitle: oops no closing delimiter\n"
+    meta, body = notes_store.parse_frontmatter(text)
+    assert meta == {}
+    assert body == text
