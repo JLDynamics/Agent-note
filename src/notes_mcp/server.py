@@ -1,71 +1,58 @@
+"""Notes MCP server — append-only AI-organized notes.
+
+Four tools only. No tool modifies or deletes an existing file: updates are
+new notes carrying the complete updated context; newest content wins.
+"""
+import json
+
 from mcp.server.fastmcp import FastMCP
 
-from notes_mcp import core
+from notes_mcp import embeddings, notes_store
 
 mcp = FastMCP("notes")
 
+TOOL_NAMES = ("create_note", "search", "list_recent", "read_note")
 
-@mcp.tool()
-def list_notes() -> str:
-    """List all note filenames, newest first."""
-    return core.list_notes()
+_CATEGORIES_DOC = ", ".join(sorted(notes_store.CATEGORIES))
 
 
 @mcp.tool()
-def show_note(title: str) -> str:
-    """Show the full contents of the note matching the given title."""
-    return core.show_note(title)
+def create_note(content: str, category: str = None, title: str = None) -> str:
+    """Save a new note. Notes are append-only: to UPDATE existing knowledge,
+    create a new note containing the COMPLETE updated context (never just the
+    change) — the newest note on a topic wins. Optional category, one of:
+    feelings, project_notes, user_context, technical_insights, world_knowledge."""
+    path, warning = notes_store.create_entry(content, category=category, title=title)
+    embeddings.try_embed_note(path)
+    return json.dumps({"path": str(path), "warning": warning})
 
 
 @mcp.tool()
-def search_notes(query: str) -> str:
-    """Search note contents for text; returns names of matching notes."""
-    return core.search_notes(query)
+def search(query: str, limit: int = 10, category: str = None) -> str:
+    """Hybrid semantic + keyword search over ALL notes. Results may include
+    older notes on the same topic — read dates carefully: the NEWEST content
+    is authoritative, older results are history. Short notes include full
+    text; truncated ones need read_note. Optional category filter."""
+    results = embeddings.search(query, limit=limit, category=category)
+    return json.dumps(results)
 
 
 @mcp.tool()
-def count_notes() -> str:
-    """Return the total number of notes."""
-    return core.count_notes()
+def list_recent(days: int = 7, category: str = None) -> str:
+    """List notes from the last N days, newest first. Optional category
+    filter (one of: feelings, project_notes, user_context,
+    technical_insights, world_knowledge)."""
+    return json.dumps(notes_store.list_recent(days=days, category=category))
 
 
 @mcp.tool()
-def create_note(title: str, content: str = "") -> str:
-    """Create a new markdown note with the given title and optional content.
-    Returns the path to the created note."""
-    return core.create_note(title, content)
-
-
-@mcp.tool()
-def delete_note(title: str) -> str:
-    """Delete the note matching the given title."""
-    return core.delete_note(title)
-
-
-@mcp.tool()
-def tag_note(title: str, tag: str) -> str:
-    """Add a tag to the note's frontmatter."""
-    return core.tag_note(title, tag)
-
-
-@mcp.tool()
-def append_note(title: str, content: str) -> str:
-    """Append text to the end of an existing note."""
-    return core.append_note(title, content)
-
-
-@mcp.tool()
-def replace_section(title: str, old_text: str, new_text: str) -> str:
-    """Replace a specific block of text in a note. Only the first match is replaced.
-    Use show_note first to read the current content, then identify the exact text to replace."""
-    return core.replace_section(title, old_text, new_text)
-
-
-@mcp.tool()
-def insert_after_heading(title: str, heading: str, content: str) -> str:
-    """Insert content immediately after a specific heading in a note.
-    The heading should match the text after the # markers (e.g. 'Ideas' for '## Ideas')."""
-    return core.insert_after_heading(title, heading, content)
+def read_note(path: str) -> str:
+    """Read the full markdown of one note, by a path returned from search or
+    list_recent. Only paths inside the notes folder are allowed."""
+    try:
+        return notes_store.read_note(path)
+    except (ValueError, FileNotFoundError) as exc:
+        return f"Refused or not found: {exc}"
 
 
 if __name__ == "__main__":
