@@ -22,3 +22,5 @@ packages = ["src/notes_mcp"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["slow: real-model tests (downloads ~90 MB); run with -m slow"]
+addopts = "-m 'not slow'"
