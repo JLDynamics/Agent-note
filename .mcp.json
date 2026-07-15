@@ -3,10 +3,7 @@
     "notes": {
       "command": "uv",
       "args": ["run", "python", "-m", "notes_mcp.server"],
-      "cwd": "/Users/jack/Documents/Agent-note",
-      "env": {
-        "ZCODE_NOTES_FOLDER": "~/.zcode-notes"
-      }
+      "cwd": "/Users/jack/Documents/Agent-note"
     }
   }
 }

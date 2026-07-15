@@ -60,15 +60,14 @@ MCP config (`.mcp.json` or Claude Code settings):
     "notes": {
       "command": "uv",
       "args": ["run", "python", "-m", "notes_mcp.server"],
-      "cwd": "<path-to-this-repo>",
-      "env": {"ZCODE_NOTES_FOLDER": "~/.notes"}
+      "cwd": "<path-to-this-repo>"
     }
   }
 }
 ```
 
-`env` is optional — omit it to fall back to `~/.notesrc` or the `~/.notes`
-default.
+To use a folder other than `~/.notes` or `~/.notesrc`'s `notes_folder`, add
+`"env": {"ZCODE_NOTES_FOLDER": "~/wherever"}` to the server config above.
 
 Optional: `git init ~/.notes` for free append-only history of every note.
 
