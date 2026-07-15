@@ -13,3 +13,15 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Stray output from the original private-journal-mcp if its server ever runs
+# from this directory (test artifacts; this repo uses ~/.notes via notes_mcp)
+.private-journal/
+
+# ZCode dedicated notes folder (created at runtime by the MCP server)
+.zcode-notes
+
+# Hermes voice-chat transcripts (telegram-voice.txt) written to the repo root
+# by the MCP client. House them in voice-transcripts/; ignore loose ones too.
+voice-transcripts/
+*-telegram-voice.txt

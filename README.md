@@ -18,7 +18,7 @@ plain markdown.
 ~/.notes/
   2026-07-04/
     14-30-52.md          # one note
-    14-30-52.embedding   # its search vector (auto-regenerated if lost)
+    14-30-52.embedding   # its chunk vectors (auto-regenerated if lost)
 ```
 
 Configure a different root in `~/.notesrc`: `{"notes_folder": "~/MyNotes"}`.
@@ -28,7 +28,7 @@ Configure a different root in `~/.notesrc`: `{"notes_folder": "~/MyNotes"}`.
 | Tool | Purpose |
 |---|---|
 | `create_note(content, category?, title?)` | Save a new note (append-only) |
-| `search(query, limit?, category?)` | Hybrid semantic + keyword search |
+| `search(query, limit?, category?)` | Hybrid semantic + keyword search; long notes are searched by section |
 | `list_recent(days?, category?)` | Recent notes, newest first |
 | `read_note(path)` | Full text of one note (paths from search/list) |
 

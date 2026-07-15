@@ -1,8 +1,12 @@
 {
   "mcpServers": {
     "notes": {
-      "command": "/Users/jack/Documents/Agent-note/.venv/bin/python",
-      "args": ["-m", "notes_mcp.server"]
+      "command": "uv",
+      "args": ["run", "python", "-m", "notes_mcp.server"],
+      "cwd": "/Users/jack/Documents/Agent-note",
+      "env": {
+        "ZCODE_NOTES_FOLDER": "~/.zcode-notes"
+      }
     }
   }
 }

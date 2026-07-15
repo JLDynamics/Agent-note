@@ -1,4 +1,5 @@
 import json
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 
@@ -55,6 +56,22 @@ def test_create_entry_same_second_collision(notes_folder):
     assert p2.name == "14-30-52-2.md"
     assert p3.name == "14-30-52-3.md"
     assert p1.read_text() != p2.read_text()
+
+
+def test_create_entry_concurrent_writers_never_overwrite(notes_folder):
+    def save(index):
+        path, _ = notes_store.create_entry(f"entry {index}", now=FIXED_NOW)
+        return path
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        paths = list(pool.map(save, range(20)))
+
+    assert len(set(paths)) == 20
+    bodies = {
+        notes_store.parse_frontmatter(path.read_text(encoding="utf-8"))[1].strip()
+        for path in paths
+    }
+    assert bodies == {f"entry {index}" for index in range(20)}
 
 
 def test_parse_frontmatter_no_frontmatter():

@@ -21,6 +21,23 @@ def test_tool_surface_is_exactly_four():
         assert not hasattr(server, removed)
 
 
+def test_create_note_description_tells_ai_to_infer():
+    """The description the AI sees must say to infer category/title itself,
+    never ask the user — that's what stops the back-and-forth."""
+    import asyncio
+    desc = asyncio.run(server.mcp.list_tools())
+    cn = next(t for t in desc if t.name == "create_note").description
+    assert "NEVER ask" in cn
+    for label in notes_store.CATEGORIES:
+        assert label in cn, f"category {label!r} missing from description"
+
+
+def test_category_help_matches_categories():
+    """_CATEGORY_HELP must list exactly notes_store.CATEGORIES — keep the
+    tool description and the validation set in sync."""
+    assert set(server._CATEGORY_HELP) == set(notes_store.CATEGORIES)
+
+
 def test_create_note_saves_and_embeds(notes_folder):
     reply = json.loads(server.create_note("hello world", category="user_context"))
     assert "hello world" in notes_store.read_note(reply["path"])

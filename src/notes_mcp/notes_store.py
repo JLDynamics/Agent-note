@@ -1,5 +1,6 @@
 """Append-only note storage: dated folders, YAML-ish frontmatter."""
 import json
+import os
 import re
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -15,7 +16,12 @@ SNIPPET_LENGTH = 300
 
 
 def get_notes_folder():
-    """Notes root: ~/.notes, or "notes_folder" from ~/.notesrc if present."""
+    """Notes root: env var ZCODE_NOTES_FOLDER > ~/.notesrc > ~/.notes."""
+    env_override = os.environ.get("ZCODE_NOTES_FOLDER")
+    if env_override:
+        folder = Path(env_override).expanduser()
+        folder.mkdir(parents=True, exist_ok=True)
+        return folder
     config_file = Path.home() / ".notesrc"
     default_folder = Path.home() / ".notes"
     if config_file.exists():
@@ -75,13 +81,6 @@ def create_entry(content, category=None, title=None, now=None):
         )
         category = None
 
-    stem = now.strftime("%H-%M-%S")
-    path = folder / f"{stem}.md"
-    counter = 2
-    while path.exists():
-        path = folder / f"{stem}-{counter}.md"
-        counter += 1
-
     lines = [
         "---",
         f'title: "{title or _default_title(now)}"',
@@ -90,8 +89,22 @@ def create_entry(content, category=None, title=None, now=None):
     if category:
         lines.append(f"category: {category}")
     lines += ["---", "", content, ""]
-    path.write_text("\n".join(lines), encoding="utf-8")
-    return path, warning
+    entry = "\n".join(lines)
+
+    # Opening with mode "x" asks the OS to create the file only if it does
+    # not already exist. The existence check and claim are one operation, so
+    # simultaneous agents can never select and overwrite the same filename.
+    stem = now.strftime("%H-%M-%S")
+    counter = 1
+    while True:
+        suffix = "" if counter == 1 else f"-{counter}"
+        path = folder / f"{stem}{suffix}.md"
+        try:
+            with path.open("x", encoding="utf-8") as handle:
+                handle.write(entry)
+            return path, warning
+        except FileExistsError:
+            counter += 1
 
 
 _LEGACY_DATE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})-(\d{2})(\d{2})(\d{2})")

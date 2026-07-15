@@ -13,13 +13,38 @@ mcp = FastMCP("notes")
 
 TOOL_NAMES = ("create_note", "search", "list_recent", "read_note")
 
+# Category definitions used in the tool description so the AI can route content
+# itself. Keep these in sync with notes_store.CATEGORIES (a test guards this).
+_CATEGORY_HELP = {
+    "feelings": "reflections, mood, emotional noticings, what you processed or felt",
+    "project_notes": "current or future projects (this one, or anything else being built)",
+    "user_context": "facts about the user (Jack): preferences, communication style, working patterns, life situation",
+    "technical_insights": "coding and software learnings beyond a specific project",
+    "world_knowledge": "general facts, domain knowledge, how systems work",
+}
 
-@mcp.tool()
+_CREATE_NOTE_DESCRIPTION = """Save a new note. Notes are append-only: to UPDATE existing
+knowledge, create a new note containing the COMPLETE updated context (never just
+the change) — the newest note on a topic wins.
+
+Infer `category` and `title` from the content yourself and save in one step —
+NEVER ask the user for a category or title. Only ask the user a follow-up when
+the content itself is unclear or missing.
+
+Categories (pick the single best fit):
+""" + "\n".join(
+    f"    - {name}: {desc}" for name, desc in _CATEGORY_HELP.items()
+) + """
+
+If a note genuinely spans several, pick the dominant one; when uncertain,
+prefer leaving category unset rather than asking."""
+
+
+@mcp.tool(description=_CREATE_NOTE_DESCRIPTION)
 def create_note(content: str, category: str | None = None, title: str | None = None) -> str:
-    """Save a new note. Notes are append-only: to UPDATE existing knowledge,
-    create a new note containing the COMPLETE updated context (never just the
-    change) — the newest note on a topic wins. Optional category, one of:
-    feelings, project_notes, user_context, technical_insights, world_knowledge."""
+    """Save a new note (append-only). The full description rich categories and
+    the infer-don't-ask instruction is attached via the decorator so it reaches
+    the model reliably regardless of how the client renders docstrings."""
     path, warning = notes_store.create_entry(content, category=category, title=title)
     embeddings.try_embed_note(path)
     return json.dumps({"path": str(path), "warning": warning})

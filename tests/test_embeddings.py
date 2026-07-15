@@ -34,6 +34,54 @@ def test_embedding_path():
         Path("/x/2026-07-04/14-30-52.embedding")
 
 
+def test_chunk_text_splits_long_text_without_losing_content():
+    text = ("first section sentence. " * 80) + "\n\n" + ("second section " * 100)
+    chunks = embeddings.chunk_text(text)
+    assert len(chunks) >= 2
+    assert "".join(chunk["text"] for chunk in chunks) == text
+    assert chunks[0]["start"] == 0
+    assert chunks[-1]["end"] == len(text)
+
+
+def test_long_note_embeds_and_reuses_multiple_chunks(notes_folder):
+    note, _ = notes_store.create_entry("alpha words " * 300)
+    calls = []
+
+    def counting_embed(text):
+        calls.append(text)
+        return fake_embed(text)
+
+    first = embeddings.get_chunk_vectors(note, counting_embed, model_name="fake-model")
+    first_call_count = len(calls)
+    second = embeddings.get_chunk_vectors(note, counting_embed, model_name="fake-model")
+
+    assert len(first) >= 3
+    assert second == first
+    assert first_call_count == len(first)
+    assert len(calls) == first_call_count  # second load reused the companion file
+
+
+def test_old_single_vector_upgrades_short_note_without_reembedding(notes_folder):
+    note, _ = notes_store.create_entry("short note")
+    embeddings.embedding_path(note).write_text(json.dumps({
+        "model": "fake-model",
+        "vector": [1.0, 2.0, 3.0],
+    }))
+
+    def should_not_run(text):
+        raise AssertionError("the existing short-note vector should be reusable")
+
+    chunks = embeddings.get_chunk_vectors(note, should_not_run, model_name="fake-model")
+    saved = json.loads(embeddings.embedding_path(note).read_text())
+    stored_text = notes_store.note_info(note)["text"]
+    assert chunks == [{
+        "start": 0,
+        "end": len(stored_text),
+        "vector": [1.0, 2.0, 3.0],
+    }]
+    assert saved["chunks"] == chunks
+
+
 def test_get_vector_creates_then_reuses(notes_folder):
     note, _ = notes_store.create_entry("milk milk milk")
     calls = []
@@ -115,7 +163,9 @@ def test_search_keyword_rescue_outside_top_n(notes_folder):
     # Distractors contain no keyword-signal words: fake_embed scores them
     # parallel to the query (cosine 1.0). The OpenClaw note is loaded with
     # "milk" words, pushing its vector away from the query so it falls
-    # OUTSIDE the semantic top-2 — only the keyword rescue can return it.
+    # OUTSIDE the semantic top-2 — only the keyword rescue can surface it.
+    # Rescue now SWAPS the keyword hit in for the lowest pure-semantic result
+    # (within the limit budget) rather than over-returning past `limit`.
     notes_store.create_entry("plain filler text about nothing")
     notes_store.create_entry("more plain filler words entirely")
     notes_store.create_entry("OpenClaw gateway milk food milk food milk")
@@ -123,12 +173,46 @@ def test_search_keyword_rescue_outside_top_n(notes_folder):
                                 model_name="fake-model")
     rescued = [r for r in results if "OpenClaw" in r["text"]]
     assert rescued and rescued[0]["match"] == "keyword"
-    assert len(results) == 3  # top-2 semantic + 1 rescued
+    assert len(results) == 2  # limit is a hard cap: swap-in, never exceed
 
 
 def test_search_empty_folder_returns_empty(notes_folder):
     assert embeddings.search("anything", embed_fn=fake_embed,
                              model_name="fake-model") == []
+
+
+def test_search_keyword_matches_all_tokens_anywhere(notes_folder):
+    # Multi-token query: every token must appear somewhere in the note, in any
+    # order/position — not the verbatim phrase. Phrase-substring matching was
+    # the old behavior and missed notes with the words in separate sentences.
+    notes_store.create_entry("calgary in the morning; later I went to costco")
+    notes_store.create_entry("totally unrelated note about python")
+    results = embeddings.search("calgary costco", embed_fn=fake_embed,
+                                model_name="fake-model")
+    hits = [r for r in results if "calgary" in r["text"]]
+    assert hits, "both tokens present in the same note should keyword-match"
+
+
+def test_search_keyword_token_absent_excludes_note(notes_folder):
+    # If any token is missing, it is not a keyword match (don't over-recall).
+    notes_store.create_entry("calgary only, no other query word here")
+    results = embeddings.search("calgary costco", embed_fn=fake_embed,
+                                model_name="fake-model")
+    assert all("costco" not in r["text"] for r in results)
+    # still may return semantically, but never as a keyword match
+    assert all(r["match"] == "semantic" for r in results)
+
+
+def test_search_respects_limit_budget(notes_folder):
+    # limit is a hard cap: keyword rescue swaps hits in for the lowest
+    # pure-semantic results, never appends past the limit.
+    for i in range(8):
+        notes_store.create_entry(f"plain filler number {i} about nothing")
+    notes_store.create_entry("OpenClaw gateway milk food milk food milk")
+    results = embeddings.search("OpenClaw", limit=3, embed_fn=fake_embed,
+                                model_name="fake-model")
+    assert len(results) <= 3
+    assert any("OpenClaw" in r["text"] for r in results)
 
 
 def test_search_category_filter(notes_folder):
@@ -146,6 +230,29 @@ def test_search_long_note_snippet(notes_folder):
                                 model_name="fake-model")
     assert results[0]["truncated"] is True
     assert len(results[0]["text"]) <= 310
+
+
+def test_search_long_note_returns_the_relevant_semantic_chunk(notes_folder):
+    notes_store.create_entry(
+        ("milk groceries shopping " * 100)
+        + "\n\n"
+        + ("python code refactoring details " * 80)
+    )
+
+    def topic_embed(text):
+        lowered = text.lower()
+        return [
+            float("software" in lowered or "python" in lowered),
+            float("milk" in lowered),
+            0.1,
+        ]
+
+    results = embeddings.search(
+        "software", limit=1, embed_fn=topic_embed, model_name="topic-model"
+    )
+    assert results[0]["match"] == "semantic"
+    assert "python" in results[0]["text"]
+    assert "milk" not in results[0]["text"]
 
 
 def test_search_backfills_legacy_note(notes_folder):
