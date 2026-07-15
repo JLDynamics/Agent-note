@@ -21,19 +21,28 @@ plain markdown.
     14-30-52.embedding   # its chunk vectors (auto-regenerated if lost)
 ```
 
-Configure a different root in `~/.notesrc`: `{"notes_folder": "~/MyNotes"}`.
+Configure a different root, in order of precedence:
+
+1. `ZCODE_NOTES_FOLDER` environment variable (set in `.mcp.json`'s `env`)
+2. `~/.notesrc`: `{"notes_folder": "~/MyNotes"}`
+3. `~/.notes` (default)
 
 ## Tools
 
 | Tool | Purpose |
 |---|---|
 | `create_note(content, category?, title?)` | Save a new note (append-only) |
-| `search(query, limit?, category?)` | Hybrid semantic + keyword search; long notes are searched by section |
+| `search(query, limit?, category?)` | Hybrid semantic + keyword search; long notes are chunked and searched by section, so a match in one part of a long note doesn't get buried by the rest |
 | `list_recent(days?, category?)` | Recent notes, newest first |
 | `read_note(path)` | Full text of one note (paths from search/list) |
 
 Categories: `feelings`, `project_notes`, `user_context`,
 `technical_insights`, `world_knowledge`.
+
+Concurrent saves (e.g. multiple MCP clients writing at once) never collide:
+note filenames are claimed with an atomic exclusive-create, so two notes in
+the same second always get distinct files instead of one overwriting the
+other.
 
 ## Install
 
@@ -46,8 +55,20 @@ uv run python -c "from notes_mcp.embeddings import embed_text; embed_text('warm 
 MCP config (`.mcp.json` or Claude Code settings):
 
 ```json
-{"mcpServers": {"notes": {"command": "uv", "args": ["run", "python", "-m", "notes_mcp.server"], "cwd": "<path-to-this-repo>"}}}
+{
+  "mcpServers": {
+    "notes": {
+      "command": "uv",
+      "args": ["run", "python", "-m", "notes_mcp.server"],
+      "cwd": "<path-to-this-repo>",
+      "env": {"ZCODE_NOTES_FOLDER": "~/.notes"}
+    }
+  }
+}
 ```
+
+`env` is optional — omit it to fall back to `~/.notesrc` or the `~/.notes`
+default.
 
 Optional: `git init ~/.notes` for free append-only history of every note.
 

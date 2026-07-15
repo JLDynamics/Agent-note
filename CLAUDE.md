@@ -2,8 +2,9 @@
 
 Append-only, AI-organized notes exposed over MCP. The AI is the interface:
 you talk, it files. Notes are plain markdown in dated folders under
-`~/.notes/` (configurable via `~/.notesrc`), searchable by meaning via local
-fastembed embeddings (nothing leaves the machine).
+`~/.notes/` (configurable via `ZCODE_NOTES_FOLDER` env var, then
+`~/.notesrc`), searchable by meaning via local fastembed embeddings (nothing
+leaves the machine).
 
 ## Tool surface (4 tools, MCP-only)
 
@@ -23,7 +24,7 @@ the AI to infer category and title itself — never ask the user.
 src/notes_mcp/
   server.py        # MCP tool surface (FastMCP)
   notes_store.py   # append-only storage, frontmatter, dated folders, path guard
-  embeddings.py    # fastembed wrapper, hybrid (semantic + keyword) search, self-healing vectors
+  embeddings.py    # fastembed wrapper, chunked hybrid (semantic + keyword) search, self-healing vectors
 tests/             # pytest; fake embedder for determinism, -m slow for real model
 docs/superpowers/  # design spec and plan
 ```
@@ -50,6 +51,7 @@ uv run pytest -m slow    # real-model integration test (~90 MB download)
 - **Never add edit/delete tools** — the wall is omission. Updates are new
   notes; the filesystem is the manual escape hatch.
 - **Never lose a note.** Embedding failure → note still saves, vector is
-  self-healed on next search.
+  self-healed on next search. Filenames are claimed with an atomic
+  exclusive-create so concurrent writers never overwrite each other.
 - **Tests use a fake embedder** (`tests/test_embeddings.py`) for deterministic
   ranking; don't reach for the real model in unit tests.
