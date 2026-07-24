@@ -1,12 +1,27 @@
 [project]
 name = "notes-mcp"
 version = "0.1.0"
-description = "A simple notes MCP server"
+description = "An append-only local notes server for the Model Context Protocol"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.12"
+keywords = ["mcp", "notes", "knowledge-management", "embeddings", "local-first"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+]
 dependencies = [
     "mcp[cli]>=1.27.2",
     "fastembed>=0.6",
 ]
+
+[project.urls]
+Homepage = "https://github.com/JLDynamics/Agent-note"
+Repository = "https://github.com/JLDynamics/Agent-note"
+Issues = "https://github.com/JLDynamics/Agent-note/issues"
 
 [dependency-groups]
 dev = [

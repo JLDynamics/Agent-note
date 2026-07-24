@@ -1,13 +1,12 @@
 """Append-only note storage: dated folders, YAML-ish frontmatter."""
 import json
-import os
 import re
+from collections import Counter
 from datetime import datetime, timedelta
 from pathlib import Path
 
-CATEGORIES = frozenset(
-    ["feelings", "project_notes", "user_context", "technical_insights", "world_knowledge"]
-)
+MAX_TAGS = 8
+MAX_TAG_LENGTH = 40
 
 # Notes longer than SNIPPET_LIMIT are returned as SNIPPET_LENGTH-char snippets
 # (single source of truth — embeddings.search uses these too).
@@ -16,12 +15,7 @@ SNIPPET_LENGTH = 300
 
 
 def get_notes_folder():
-    """Notes root: env var ZCODE_NOTES_FOLDER > ~/.notesrc > ~/.notes."""
-    env_override = os.environ.get("ZCODE_NOTES_FOLDER")
-    if env_override:
-        folder = Path(env_override).expanduser()
-        folder.mkdir(parents=True, exist_ok=True)
-        return folder
+    """Notes root: ~/.notesrc when configured, otherwise ~/.notes."""
     config_file = Path.home() / ".notesrc"
     default_folder = Path.home() / ".notes"
     if config_file.exists():
@@ -32,7 +26,15 @@ def get_notes_folder():
                 f"~/.notesrc contains invalid JSON ({exc}). "
                 "Fix or delete the file — notes cannot be saved until then."
             ) from exc
-        folder = Path(config.get("notes_folder", default_folder)).expanduser()
+        if not isinstance(config, dict):
+            raise ValueError("~/.notesrc must contain a JSON object.")
+        configured_folder = config.get("notes_folder")
+        if configured_folder is None:
+            folder = default_folder
+        elif not isinstance(configured_folder, str) or not configured_folder.strip():
+            raise ValueError("~/.notesrc notes_folder must be a non-empty path string.")
+        else:
+            folder = Path(configured_folder).expanduser()
     else:
         folder = default_folder
     folder.mkdir(parents=True, exist_ok=True)
@@ -56,38 +58,113 @@ def parse_frontmatter(text):
         if ":" not in line:
             return {}, text
         key, _, value = line.partition(":")
-        meta[key.strip()] = value.strip().strip('"')
+        value = value.strip()
+        if len(value) >= 2 and value.startswith('"') and value.endswith('"'):
+            try:
+                value = json.loads(value)
+            except json.JSONDecodeError:
+                value = value.strip('"')
+        meta[key.strip()] = value
     return {}, text
 
 
 def _default_title(now):
-    return now.strftime("%-I:%M:%S %p - %B %-d, %Y")
+    # %-I and %-d are convenient on POSIX but unsupported on Windows.
+    hour = now.strftime("%I").lstrip("0") or "0"
+    return f"{hour}:{now.strftime('%M:%S %p - %B')} {now.day}, {now.year}"
 
 
-def create_entry(content, category=None, title=None, now=None):
+def normalize_tag(tag):
+    """Normalize one tag to lowercase words separated by single hyphens."""
+    if not isinstance(tag, str):
+        return ""
+    tag = tag.casefold().strip()
+    # \w is Unicode-aware. Convert underscores and every other separator to a
+    # hyphen, then collapse repeats so tags remain simple and predictable.
+    tag = re.sub(r"[^\w]+", "-", tag, flags=re.UNICODE)
+    tag = re.sub(r"[_-]+", "-", tag).strip("-")
+    return tag[:MAX_TAG_LENGTH].rstrip("-")
+
+
+def normalize_tags(tags):
+    """Return (normalized tags, warning) without ever rejecting note content."""
+    if tags is None:
+        return [], None
+    if isinstance(tags, str):
+        tags = [tags]
+    if not isinstance(tags, (list, tuple)):
+        return [], "Tags must be a list of text values — saved without tags."
+
+    normalized = []
+    saw_invalid = False
+    saw_long = False
+    for value in tags:
+        if not isinstance(value, str) or not value.strip():
+            saw_invalid = True
+            continue
+        clean = normalize_tag(value)
+        if not clean:
+            saw_invalid = True
+            continue
+        if len(value.strip()) > MAX_TAG_LENGTH:
+            saw_long = True
+        if clean not in normalized:
+            normalized.append(clean)
+
+    too_many = len(normalized) > MAX_TAGS
+    normalized = normalized[:MAX_TAGS]
+    warnings = []
+    if saw_invalid:
+        warnings.append("blank or invalid tags were removed")
+    if saw_long:
+        warnings.append(f"tags longer than {MAX_TAG_LENGTH} characters were shortened")
+    if too_many:
+        warnings.append(f"only the first {MAX_TAGS} unique tags were kept")
+    warning = "; ".join(warnings).capitalize() + "." if warnings else None
+    return normalized, warning
+
+
+def _stored_tags(meta):
+    """Read inline JSON tags and treat an old category as a legacy tag."""
+    value = meta.get("tags")
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            parsed = [part.strip() for part in value.strip("[]").split(",")]
+    elif isinstance(value, list):
+        parsed = value
+    else:
+        parsed = []
+    if meta.get("category"):
+        parsed.append(meta["category"])
+    tags, _ = normalize_tags(parsed)
+    return tags
+
+
+def create_entry(content, tags=None, title=None, now=None):
     """Create a new note file in today's dated folder. Never overwrites.
 
-    Returns (path, warning): warning is set when an invalid category was
-    dropped (the note still saves — never lose content over metadata)."""
+    Returns (path, warning). Invalid tag metadata is cleaned or dropped, but
+    the note itself always saves so metadata can never cause content loss.
+    Empty content is rejected — there is nothing durable to store."""
+    if not isinstance(content, str) or not content.strip():
+        raise ValueError("note content cannot be empty")
+
     now = now or datetime.now()
     folder = get_notes_folder() / now.strftime("%Y-%m-%d")
     folder.mkdir(parents=True, exist_ok=True)
 
-    warning = None
-    if category is not None and category not in CATEGORIES:
-        warning = (
-            f"Unknown category '{category}' — saved without category. "
-            f"Valid: {', '.join(sorted(CATEGORIES))}"
-        )
-        category = None
+    normalized_tags, warning = normalize_tags(tags)
 
+    note_title = str(title) if title is not None else _default_title(now)
     lines = [
         "---",
-        f'title: "{title or _default_title(now)}"',
+        f"title: {json.dumps(note_title, ensure_ascii=False)}",
         f"date: {now.strftime('%Y-%m-%dT%H:%M:%S')}",
     ]
-    if category:
-        lines.append(f"category: {category}")
+    if normalized_tags:
+        lines.append(f"tags: {json.dumps(normalized_tags, ensure_ascii=False)}")
     lines += ["---", "", content, ""]
     entry = "\n".join(lines)
 
@@ -117,7 +194,17 @@ def _now():
 
 
 def iter_note_paths():
-    return sorted(get_notes_folder().rglob("*.md"))
+    root = get_notes_folder().resolve()
+    raw_root = (root / ".raw").resolve()
+    paths = []
+    for candidate in root.rglob("*.md"):
+        try:
+            resolved = candidate.resolve()
+        except (OSError, RuntimeError):
+            continue
+        if resolved.is_relative_to(root) and not resolved.is_relative_to(raw_root):
+            paths.append(candidate)
+    return sorted(paths)
 
 
 def note_date(path):
@@ -135,21 +222,50 @@ def note_date(path):
 
 
 def note_info(path):
-    meta, body = parse_frontmatter(path.read_text(encoding="utf-8"))
+    path = Path(path)
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise ValueError(f"unreadable note: {path}") from exc
+    meta, body = parse_frontmatter(raw)
+    try:
+        date = note_date(path).isoformat()
+    except OSError as exc:
+        raise ValueError(f"unreadable note: {path}") from exc
     return {
         "path": str(path),
-        "date": note_date(path).isoformat(),
+        "date": date,
         "title": meta.get("title", path.stem),
-        "category": meta.get("category"),
+        "tags": _stored_tags(meta),
         "text": body,
     }
 
 
-def list_recent(days=7, category=None):
+def iter_note_infos():
+    """Yield note_info dicts, skipping files that cannot be read or parsed."""
+    for path in iter_note_paths():
+        try:
+            yield note_info(path)
+        except (ValueError, OSError, UnicodeDecodeError):
+            continue
+
+
+def list_recent(days=7, tags=None):
     cutoff = _now() - timedelta(days=days)
-    infos = [note_info(p) for p in iter_note_paths() if note_date(p) >= cutoff]
-    if category:
-        infos = [i for i in infos if i["category"] == category]
+    infos = []
+    for path in iter_note_paths():
+        try:
+            if note_date(path) < cutoff:
+                continue
+            infos.append(note_info(path))
+        except (ValueError, OSError, UnicodeDecodeError):
+            continue
+    required_tags, _ = normalize_tags(tags)
+    if tags is not None:
+        if not required_tags:
+            return []
+        required = set(required_tags)
+        infos = [i for i in infos if required.issubset(i["tags"])]
     for info in infos:
         info["truncated"] = len(info["text"]) > SNIPPET_LIMIT
         if info["truncated"]:
@@ -157,10 +273,27 @@ def list_recent(days=7, category=None):
     return sorted(infos, key=lambda i: i["date"], reverse=True)
 
 
+def list_tags():
+    """Return normalized tags with usage counts, most common first."""
+    counts = Counter(
+        tag
+        for info in iter_note_infos()
+        for tag in info["tags"]
+    )
+    return [
+        {"tag": tag, "count": count}
+        for tag, count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    ]
+
+
 def read_note(path_str):
-    """Read one note by path. Refuses anything outside the notes root."""
+    """Read one Markdown note. Refuse raw data and paths outside the root."""
     root = get_notes_folder().resolve()
     path = Path(path_str).expanduser().resolve()
     if not path.is_relative_to(root):
         raise ValueError(f"Refused: {path_str} is outside the notes folder")
+    if path.is_relative_to((root / ".raw").resolve()):
+        raise ValueError(f"Refused: {path_str} is raw source data, not a note")
+    if path.suffix.lower() != ".md":
+        raise ValueError(f"Refused: {path_str} is not a Markdown note")
     return path.read_text(encoding="utf-8")

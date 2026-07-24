@@ -1,5 +1,7 @@
 import json
 import math
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -61,25 +63,77 @@ def test_long_note_embeds_and_reuses_multiple_chunks(notes_folder):
     assert len(calls) == first_call_count  # second load reused the companion file
 
 
-def test_old_single_vector_upgrades_short_note_without_reembedding(notes_folder):
-    note, _ = notes_store.create_entry("short note")
+def test_embedding_cache_regenerates_after_same_length_manual_edit(notes_folder):
+    note, _ = notes_store.create_entry("milk")
+    calls = []
+
+    def counting_embed(text):
+        calls.append(text)
+        return fake_embed(text)
+
+    first = embeddings.get_chunk_vectors(note, counting_embed, model_name="edit-model")
+    original = note.read_text(encoding="utf-8")
+    note.write_text(original.replace("milk", "code"), encoding="utf-8")
+    second = embeddings.get_chunk_vectors(note, counting_embed, model_name="edit-model")
+
+    assert len(calls) == 4  # meta + body, before and after the edit
+    assert first != second
+    saved = json.loads(embeddings.embedding_path(note).read_text())
+    info = notes_store.note_info(note)
+    assert saved["text_sha256"] == embeddings._text_fingerprint(
+        embeddings.embed_source_text(info["title"], info["tags"], info["text"])
+    )
+    assert "meta_vector" in saved
+
+
+def test_embedding_write_is_atomic_and_coerces_json_numbers(notes_folder):
+    note, _ = notes_store.create_entry("content")
+
+    class FloatLike:
+        def __init__(self, value):
+            self.value = value
+
+        def __float__(self):
+            return float(self.value)
+
+    def save(index):
+        embeddings.save_chunk_embeddings(
+            note,
+            [{"start": 0, "end": 8, "vector": [FloatLike(index), 2.0]}],
+            model_name="atomic-model",
+            text="content\n",
+        )
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        list(pool.map(save, range(20)))
+
+    saved = json.loads(embeddings.embedding_path(note).read_text())
+    assert saved["model"] == "atomic-model"
+    assert isinstance(saved["chunks"][0]["vector"][0], float)
+    assert not list(note.parent.glob(f".{note.stem}.embedding.*.tmp"))
+
+
+def test_old_single_vector_short_note_rebuilds_with_title_meta(notes_folder):
+    # Legacy one-vector files have no meta_vector. Notes with titles must
+    # rebuild so title/tags participate in semantic search.
+    note, _ = notes_store.create_entry("short note", title="Short title")
     embeddings.embedding_path(note).write_text(json.dumps({
         "model": "fake-model",
         "vector": [1.0, 2.0, 3.0],
     }))
 
-    def should_not_run(text):
-        raise AssertionError("the existing short-note vector should be reusable")
-
-    chunks = embeddings.get_chunk_vectors(note, should_not_run, model_name="fake-model")
+    chunks = embeddings.get_chunk_vectors(note, fake_embed, model_name="fake-model")
     saved = json.loads(embeddings.embedding_path(note).read_text())
-    stored_text = notes_store.note_info(note)["text"]
-    assert chunks == [{
+    body = notes_store.note_info(note)["text"]
+    assert any(chunk.get("role") == "meta" for chunk in chunks)
+    body_chunks = [chunk for chunk in chunks if chunk.get("role") != "meta"]
+    assert body_chunks == [{
         "start": 0,
-        "end": len(stored_text),
-        "vector": [1.0, 2.0, 3.0],
+        "end": len(body),
+        "vector": fake_embed(body),
     }]
-    assert saved["chunks"] == chunks
+    assert saved["chunks"] == body_chunks
+    assert saved["meta_vector"] == fake_embed("Short title")
 
 
 def test_get_vector_creates_then_reuses(notes_folder):
@@ -93,9 +147,11 @@ def test_get_vector_creates_then_reuses(notes_folder):
     v1 = embeddings.get_vector(note, counting_embed, model_name="fake-model")
     v2 = embeddings.get_vector(note, counting_embed, model_name="fake-model")
     assert v1 == v2
-    assert len(calls) == 1  # second call hit the .embedding file
+    # meta (title) + body on first build; second load reuses the companion file
+    assert len(calls) == 2
     saved = json.loads(embeddings.embedding_path(note).read_text())
     assert saved["model"] == "fake-model"
+    assert "meta_vector" in saved
 
 
 def test_get_vector_heals_corrupt_and_model_mismatch(notes_folder):
@@ -160,17 +216,26 @@ def test_search_keyword_hit_inside_top_n_is_marked(notes_folder):
 
 
 def test_search_keyword_rescue_outside_top_n(notes_folder):
-    # Distractors contain no keyword-signal words: fake_embed scores them
-    # parallel to the query (cosine 1.0). The OpenClaw note is loaded with
-    # "milk" words, pushing its vector away from the query so it falls
-    # OUTSIDE the semantic top-2 — only the keyword rescue can surface it.
-    # Rescue now SWAPS the keyword hit in for the lowest pure-semantic result
-    # (within the limit budget) rather than over-returning past `limit`.
-    notes_store.create_entry("plain filler text about nothing")
-    notes_store.create_entry("more plain filler words entirely")
-    notes_store.create_entry("OpenClaw gateway milk food milk food milk")
-    results = embeddings.search("OpenClaw", limit=2, embed_fn=fake_embed,
-                                model_name="fake-model")
+    # Distractors align with the query vector; the OpenClaw note (title + body)
+    # is forced orthogonal so it falls outside the semantic top-2. Only keyword
+    # rescue can surface it, swapping into a pure-semantic slot within `limit`.
+    notes_store.create_entry("plain filler text about nothing", title="Filler A")
+    notes_store.create_entry("more plain filler words entirely", title="Filler B")
+    notes_store.create_entry(
+        "OpenClaw gateway restart steps", title="OpenClaw ops"
+    )
+
+    def rescue_embed(text):
+        lowered = text.lower().strip()
+        if lowered == "openclaw":
+            return [1.0, 0.0, 0.0]
+        if "openclaw" in lowered:
+            return [0.0, 1.0, 0.0]
+        return [1.0, 0.0, 0.0]
+
+    results = embeddings.search(
+        "OpenClaw", limit=2, embed_fn=rescue_embed, model_name="rescue-model"
+    )
     rescued = [r for r in results if "OpenClaw" in r["text"]]
     assert rescued and rescued[0]["match"] == "keyword"
     assert len(results) == 2  # limit is a hard cap: swap-in, never exceed
@@ -179,6 +244,17 @@ def test_search_keyword_rescue_outside_top_n(notes_folder):
 def test_search_empty_folder_returns_empty(notes_folder):
     assert embeddings.search("anything", embed_fn=fake_embed,
                              model_name="fake-model") == []
+
+
+def test_search_blank_query_and_nonpositive_limit_do_no_embedding_work(notes_folder):
+    notes_store.create_entry("content")
+
+    def should_not_run(text):
+        raise AssertionError("invalid searches should stop before embedding")
+
+    assert embeddings.search("   ", embed_fn=should_not_run) == []
+    assert embeddings.search("content", limit=0, embed_fn=should_not_run) == []
+    assert embeddings.search("content", limit=-1, embed_fn=should_not_run) == []
 
 
 def test_search_keyword_matches_all_tokens_anywhere(notes_folder):
@@ -215,13 +291,92 @@ def test_search_respects_limit_budget(notes_folder):
     assert any("OpenClaw" in r["text"] for r in results)
 
 
-def test_search_category_filter(notes_folder):
-    notes_store.create_entry("feeling great about food", category="feelings")
-    notes_store.create_entry("food inventory list", category="project_notes")
-    results = embeddings.search("food", category="feelings",
-                                embed_fn=fake_embed, model_name="fake-model")
+def test_search_tag_filter(notes_folder):
+    notes_store.create_entry(
+        "feeling great about food", tags=["feelings", "personal"]
+    )
+    notes_store.create_entry("food inventory list", tags=["project", "inventory"])
+    results = embeddings.search(
+        "food", tags=["Feelings"], embed_fn=fake_embed, model_name="fake-model"
+    )
     assert len(results) == 1
-    assert results[0]["category"] == "feelings"
+    assert results[0]["tags"] == ["feelings", "personal"]
+
+
+def test_tag_match_boosts_relevant_note_and_reports_signal(notes_folder):
+    notes_store.create_entry(
+        "plain words that embeddings rank weakly",
+        tags=["conversation-import", "memory"],
+    )
+    notes_store.create_entry("plain unrelated words", tags=["gardening"])
+
+    def flat_embed(text):
+        return [1.0, 0.0, 0.0]
+
+    results = embeddings.search(
+        "How does conversation import work?",
+        embed_fn=flat_embed,
+        model_name="flat-model",
+    )
+    assert results[0]["tags"] == ["conversation-import", "memory"]
+    assert "tag" in results[0]["match"]
+    assert results[0]["matched_tags"] == ["conversation-import"]
+
+
+def test_newest_note_wins_when_relevance_is_close(notes_folder):
+    notes_store.create_entry(
+        "The earlier storage plan used SQLite.",
+        tags=["storage-direction"],
+        now=datetime(2026, 6, 1, 9, 0, 0),
+    )
+    notes_store.create_entry(
+        "The current storage plan uses Markdown notes and tags.",
+        tags=["storage-direction"],
+        now=datetime(2026, 7, 21, 9, 0, 0),
+    )
+
+    def close_topic_embed(text):
+        lowered = text.lower()
+        if lowered == "storage direction":
+            similarity = 1.0
+        elif "sqlite" in lowered:
+            similarity = 0.96
+        else:
+            similarity = 0.94
+        return [similarity, math.sqrt(max(0.0, 1 - similarity**2))]
+
+    results = embeddings.search(
+        "storage direction",
+        embed_fn=close_topic_embed,
+        model_name="close-topic-model",
+    )
+    assert "current storage plan" in results[0]["text"]
+    assert "earlier storage plan" in results[1]["text"]
+    assert results[0]["score"] < results[1]["score"]
+
+
+def test_newer_unrelated_note_does_not_beat_relevant_older_note(notes_folder):
+    notes_store.create_entry(
+        "The established memory storage design uses Markdown.",
+        now=datetime(2026, 6, 1, 9, 0, 0),
+    )
+    notes_store.create_entry(
+        "New gardening plans for tomatoes.",
+        now=datetime(2026, 7, 21, 9, 0, 0),
+    )
+
+    def separated_topic_embed(text):
+        lowered = text.lower()
+        if lowered == "memory storage" or "markdown" in lowered:
+            return [1.0, 0.0]
+        return [0.0, 1.0]
+
+    results = embeddings.search(
+        "memory storage",
+        embed_fn=separated_topic_embed,
+        model_name="separated-topic-model",
+    )
+    assert "Markdown" in results[0]["text"]
 
 
 def test_search_long_note_snippet(notes_folder):
@@ -262,3 +417,79 @@ def test_search_backfills_legacy_note(notes_folder):
                                 model_name="fake-model")
     assert any("milk" in r["text"] for r in results)
     assert embeddings.embedding_path(legacy).exists()  # backfilled
+
+
+def test_search_skips_unreadable_notes(notes_folder):
+    notes_store.create_entry("milk food shopping list")
+    bad = notes_folder / "2026-07-04" / "00-00-00.md"
+    bad.parent.mkdir(parents=True, exist_ok=True)
+    bad.write_bytes(b"\xff\xfe")
+    results = embeddings.search("milk", embed_fn=fake_embed, model_name="fake-model")
+    assert results and "milk" in results[0]["text"]
+
+
+def test_search_drops_weak_semantic_hits(notes_folder):
+    notes_store.create_entry(
+        "Completely unrelated gardening notes about roses.",
+        title="Garden",
+    )
+    notes_store.create_entry(
+        "milk food milk food shopping",
+        title="Groceries",
+    )
+
+    def separated(text):
+        lowered = text.lower()
+        if "milk" in lowered or lowered == "milk":
+            return [1.0, 0.0]
+        return [0.0, 1.0]
+
+    results = embeddings.search(
+        "milk", embed_fn=separated, model_name="floor-model"
+    )
+    assert len(results) == 1
+    assert "milk" in results[0]["text"]
+
+
+def test_search_keeps_weak_semantic_when_keyword_hits(notes_folder):
+    notes_store.create_entry(
+        "The OpenClaw gateway restart checklist lives here.",
+        title="Ops",
+    )
+
+    def orthogonal(text):
+        return [0.0, 1.0]
+
+    results = embeddings.search(
+        "OpenClaw", embed_fn=orthogonal, model_name="keyword-floor-model"
+    )
+    assert results and "OpenClaw" in results[0]["text"]
+    assert "keyword" in results[0]["match"]
+
+
+def test_title_influences_semantic_ranking(notes_folder):
+    notes_store.create_entry(
+        "details about the mechanism and wiring",
+        title="Conversation import design",
+        tags=["mcp"],
+    )
+    notes_store.create_entry(
+        "details about the mechanism and wiring",
+        title="Tomato trellis design",
+        tags=["garden"],
+    )
+
+    def topic_embed(text):
+        lowered = text.lower()
+        if "conversation import" in lowered:
+            return [1.0, 0.0, 0.0]
+        if "tomato" in lowered or "garden" in lowered:
+            return [0.0, 1.0, 0.0]
+        return [0.0, 0.0, 1.0]
+
+    results = embeddings.search(
+        "conversation import",
+        embed_fn=topic_embed,
+        model_name="title-model",
+    )
+    assert results[0]["title"] == "Conversation import design"

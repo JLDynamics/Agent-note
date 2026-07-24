@@ -1,6 +1,8 @@
 [mcp_servers.notes]
-command = "/Users/jack/Documents/Agent-note/.venv/bin/python"
+command = "uv"
 args = [
+    "run",
+    "python",
     "-m",
     "notes_mcp.server",
 ]

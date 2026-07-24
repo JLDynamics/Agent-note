@@ -2,8 +2,7 @@
   "mcpServers": {
     "notes": {
       "command": "uv",
-      "args": ["run", "python", "-m", "notes_mcp.server"],
-      "cwd": "/Users/jack/Documents/Agent-note"
+      "args": ["run", "python", "-m", "notes_mcp.server"]
     }
   }
 }

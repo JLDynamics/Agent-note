@@ -4,6 +4,11 @@
 # Python-generated files
 __pycache__/
 *.py[oc]
+.pytest_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
 build/
 dist/
 wheels/
@@ -13,6 +18,10 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Local note-store configuration/data (never publish personal notes)
+.notesrc
+.notes/
 
 # Stray output from the original private-journal-mcp if its server ever runs
 # from this directory (test artifacts; this repo uses ~/.notes via notes_mcp)
