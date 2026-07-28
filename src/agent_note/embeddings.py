@@ -8,7 +8,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from notes_mcp import notes_store
+from agent_note import notes_store
 
 MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 _model = None  # lazy singleton — loading takes seconds, never do it at import

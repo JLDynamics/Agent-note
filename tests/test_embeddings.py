@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from notes_mcp import embeddings, notes_store
+from agent_note import embeddings, notes_store
 
 
 @pytest.fixture

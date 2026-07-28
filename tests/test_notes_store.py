@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from notes_mcp import notes_store
+from agent_note import notes_store
 
 
 @pytest.fixture

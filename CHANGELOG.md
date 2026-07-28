@@ -11,6 +11,8 @@ Notable changes to Agent-note are documented here.
 - Moved deterministic create and conversation-import orchestration into a
   reusable service layer while preserving the existing Markdown, raw
   transcript, metadata, embedding, and search formats.
+- Renamed the Python import package from `notes_mcp` to `agent_note` so the
+  internal namespace matches the skill-first product.
 
 ### Removed
 

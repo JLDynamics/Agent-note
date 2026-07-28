@@ -1,6 +1,6 @@
 import pytest
 
-from notes_mcp import embeddings, notes_store, service
+from agent_note import embeddings, notes_store, service
 
 
 @pytest.fixture

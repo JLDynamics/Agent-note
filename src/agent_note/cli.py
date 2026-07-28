@@ -7,7 +7,7 @@ import json
 import sys
 from pathlib import Path
 
-from notes_mcp import embeddings, notes_store, service
+from agent_note import embeddings, notes_store, service
 
 EXIT_OK = 0
 EXIT_OPERATION_ERROR = 1

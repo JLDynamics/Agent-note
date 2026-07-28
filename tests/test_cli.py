@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from notes_mcp import cli, embeddings, notes_store, service
+from agent_note import cli, embeddings, notes_store, service
 
 
 class BinaryStdin:
@@ -160,4 +160,4 @@ def test_cli_returns_json_and_stable_exit_codes_for_errors(
 def test_console_entry_point_is_declared():
     project = Path(__file__).parents[1]
     pyproject = tomllib.loads((project / "pyproject.toml").read_text())
-    assert pyproject["project"]["scripts"]["agent-note"] == "notes_mcp.cli:main"
+    assert pyproject["project"]["scripts"]["agent-note"] == "agent_note.cli:main"

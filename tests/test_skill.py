@@ -161,7 +161,9 @@ def test_repository_has_no_mcp_fallback_or_dependency():
 
     assert not (repo / ".mcp.json").exists()
     assert not (repo / ".codex" / "config.toml").exists()
-    assert not (repo / "src" / "notes_mcp" / "server.py").exists()
+    assert (repo / "src" / "agent_note").is_dir()
+    assert not (repo / "src" / "notes_mcp").exists()
+    assert not (repo / "src" / "agent_note" / "server.py").exists()
     assert all(
         not dependency.lower().startswith("mcp")
         for dependency in project["project"]["dependencies"]

@@ -18,7 +18,7 @@ skills/agent-note/
   SKILL.md                       model reasoning and workflow
   references/conversation-import.md
   scripts/agent-note             symlink-safe CLI launcher
-src/notes_mcp/
+src/agent_note/
   cli.py                         six JSON commands and stable exit codes
   service.py                     deterministic create/import orchestration
   conversation_import.py         exact raw transcript preservation
@@ -180,7 +180,7 @@ access. Later embedding and search operations use the downloaded model locally.
 To initialize it ahead of time:
 
 ```bash
-uv run python -c "from notes_mcp.embeddings import embed_text; embed_text('warm up')"
+uv run python -c "from agent_note.embeddings import embed_text; embed_text('warm up')"
 ```
 
 ## Install the shared skill

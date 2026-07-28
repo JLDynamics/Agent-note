@@ -1,6 +1,6 @@
 """Deterministic create and import workflows used by the Agent-note CLI."""
 
-from notes_mcp import conversation_import, embeddings, notes_store
+from agent_note import conversation_import, embeddings, notes_store
 
 
 def create_note(

@@ -4,7 +4,7 @@ from datetime import datetime
 
 import pytest
 
-from notes_mcp import conversation_import, notes_store
+from agent_note import conversation_import, notes_store
 
 
 @pytest.fixture

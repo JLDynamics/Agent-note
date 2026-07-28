@@ -26,7 +26,7 @@ existing files.
 ## Layout
 
 ```text
-src/notes_mcp/
+src/agent_note/
   service.py              deterministic create/import result contracts
   cli.py                  noninteractive JSON command boundary
   conversation_import.py  exact raw conversation storage
@@ -36,8 +36,8 @@ skills/agent-note/        canonical skill and symlink-safe launcher
 tests/                    deterministic fast tests plus opt-in real model test
 ```
 
-`notes_mcp` is retained as the internal Python import namespace for
-compatibility; the installed product and command are named `agent-note`.
+Python imports use `agent_note`; the installed distribution and command use
+`agent-note`.
 
 ## Run
 

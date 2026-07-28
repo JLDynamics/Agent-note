@@ -9,7 +9,7 @@ import json
 from datetime import datetime
 from uuid import uuid4
 
-from notes_mcp import notes_store
+from agent_note import notes_store
 
 
 def _conversation_id(now):
