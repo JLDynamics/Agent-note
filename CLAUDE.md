@@ -1,70 +1,87 @@
-# Agent-note — notes MCP server
+# Agent-note — skill-first local notes
 
-Append-only, AI-organized notes exposed over MCP. The AI is the interface:
-you talk, it files. Notes are plain markdown in dated folders under
-`~/.notes/` (configurable through `~/.notesrc`), searchable by meaning via
-local fastembed embeddings.
-Conversation imports save a raw transcript that the server does not rewrite,
-then the connected agent extracts durable memory through ordinary
-`create_note` calls.
+Agent-note uses a repository-owned skill for model judgment and an on-demand
+JSON CLI for deterministic operations. Notes are plain Markdown in dated
+folders under `~/.notes/` (configurable through `~/.notesrc`) and are searchable
+through local FastEmbed embeddings.
 
-## Tool surface (6 tools, MCP-only)
+Conversation imports preserve an exact raw transcript, then the agent creates
+one broad session handoff followed by useful non-duplicate focused notes.
 
-`create_note`, `import_conversation`, `search`, `list_recent`, `list_tags`,
-`read_note` — defined in
-[src/notes_mcp/server.py](src/notes_mcp/server.py). No tool edits or deletes an
-existing file: updates are new notes carrying the complete updated context;
-newest relevant note on a topic wins. Search keeps relevance primary and sorts
-close matches (within 0.05) newest-first, so unrelated recent notes do not take
-over. Manual file management happens on the filesystem.
+## Operation surface
 
-Notes use zero to eight normalized tags instead of one fixed category. The
-`create_note` description tells the AI to infer the title and 3-8 useful tags,
-reuse established tags from `list_tags`, and never ask the user for metadata.
-Old category fields are read as legacy tags without rewriting existing files.
+The CLI provides six commands: `create`, `import`, `search`, `recent`, `tags`,
+and `read`. Create/import orchestration lives in `service.py`; storage, search,
+and guarded reads remain in their focused modules. No command edits or deletes
+an existing note. Updates are new notes containing the complete current
+context.
+
+The skill chooses a subject-specific title and a few retrieval-focused tags,
+reusing established tags when they fit. One kind tag can be useful, but project
+tags, kind tags, and taxonomies are never required. Storage keeps the existing
+`title`, `date`, and `tags` frontmatter, accepts zero to eight tags, and
+normalizes them. Old category fields remain legacy tags without rewriting
+existing files.
 
 ## Layout
 
-```
+```text
 src/notes_mcp/
-  server.py        # MCP tool surface (FastMCP)
-  conversation_import.py # raw conversation storage (never rewritten by MCP)
-  notes_store.py   # append-only storage, frontmatter, dated folders, path guard
-  embeddings.py    # chunked hybrid search, tag signals, close-match recency ordering, self-healing vectors
-tests/             # pytest; fake embedder for determinism, -m slow for real model
+  service.py              deterministic create/import result contracts
+  cli.py                  noninteractive JSON command boundary
+  conversation_import.py  exact raw conversation storage
+  notes_store.py          append-only storage, frontmatter, path guards
+  embeddings.py           hybrid search and self-healing local vectors
+skills/agent-note/        canonical skill and symlink-safe launcher
+tests/                    deterministic fast tests plus opt-in real model test
 ```
+
+`notes_mcp` is retained as the internal Python import namespace for
+compatibility; the installed product and command are named `agent-note`.
 
 ## Run
 
 ```bash
 uv sync
-uv run python -m notes_mcp.server   # stdio MCP server
+uv run agent-note tags
 ```
 
-`.mcp.json` registers the server with MCP clients (Hermes, Claude Code, …)
-using `uv run` so the path survives venv recreation.
+`skills/agent-note/scripts/agent-note` resolves the canonical repository when
+the skill is reached through a directory symlink.
 
 ## Test
 
 ```bash
-uv run pytest            # fast suite (fake embeddings)
-uv run pytest -m slow    # real-model integration test (~90 MB download)
+uv lock --check
+uv run --locked pytest -q
+uv run pytest -m slow
 ```
 
 ## Conventions
 
-- **Never add edit/delete tools** — the wall is omission. Updates are new
-  notes; the filesystem is the manual escape hatch.
-- **Never lose a note.** Embedding failure → note still saves, vector is
-  self-healed on next search. Embeddings carry a content hash and are written
-  atomically, so manual note edits invalidate stale vectors and concurrent
-  searches cannot leave partial JSON. Filenames are claimed with an atomic
-  exclusive-create so concurrent writers never overwrite each other.
-- **Never rewrite raw conversations.** Store exact transcript text under
-  `.raw/conversations/<conversation-id>/conversation.txt`; keep metadata in a
-  sidecar JSON file. Exclude all `.raw/` content from indexing and `read_note`.
-  `import_conversation` only performs this reliable save step; the connected
-  agent must then put all derived memory through `create_note`. Do not add an
-  MCP sampling dependency: common desktop clients may not implement it.
-- **Tests use a fake embedder** (`tests/test_embeddings.py`) for deterministic
-  ranking; don't reach for the real model in unit tests.
+- **Never add edit/delete commands.** Updates are new complete notes; the
+  filesystem remains the manual escape hatch.
+- **Never lose a saved note.** Embedding failure does not undo storage.
+  Embeddings carry content hashes and are replaced atomically; stale, corrupt,
+  or absent vectors rebuild during search. Filenames are claimed with exclusive
+  creation so concurrent writers cannot overwrite each other.
+- **Never rewrite raw conversations.** Store exact transcript bytes under
+  `.raw/conversations/<conversation-id>/conversation.txt`, keep metadata in a
+  separate JSON file, and exclude everything under `.raw/` from indexing and
+  guarded reads.
+- **Complete imports semantically.** Import preserves the raw source. The agent
+  identifies the durable items that actually exist, creates one broad handoff
+  first, searches related notes, and creates only useful non-duplicate focused
+  notes with the exact returned source block. Before completion, check that
+  each identified important item is covered without forcing categories or a
+  fixed note count.
+- **Capture durable meaning, not generic summaries.** Preserve why an idea
+  matters and its real constraints, a decision and its reason, or a preference
+  and when it applies. Include next steps only when present. Keep facts,
+  assumptions, proposals, and unresolved questions distinct.
+- **Keep enforcement in code.** Model judgment belongs in the skill, but the
+  CLI/service/core must perform validation, safe-path checks, timestamps,
+  collision handling, raw preservation, embedding behavior, and structured
+  reporting. Do not depend on the model reading source code.
+- **Use fake embeddings in unit tests.** The real model belongs only in the
+  opt-in slow integration test.

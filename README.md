@@ -1,22 +1,46 @@
-# Notes MCP Server
+# Agent-note
 
-An append-only, AI-organized note system exposed as an
-[MCP](https://modelcontextprotocol.io) server. The AI is the interface:
-you talk, it files. Notes are markdown in dated folders under `~/.notes/`,
-searchable by meaning via local embeddings (fastembed). Conversation imports
-keep a local raw source copy that the server does not rewrite, then the
-connected agent extracts durable information through the normal `create_note`
-tool.
+Agent-note is a skill-first, append-only local note system. The shared
+[`agent-note` skill](skills/agent-note) guides model judgment, while one
+noninteractive JSON CLI performs storage, raw conversation import, search,
+listing, and guarded reads. Notes remain plain Markdown under `~/.notes/` and
+semantic search runs locally through FastEmbed.
 
-**Update model:** MCP tools never edit or delete notes. An update is a new note
-carrying the complete updated context; the newest relevant note on a topic
-wins. Old notes remain as searchable history. Files are not protected from
-normal filesystem access: every note is plain markdown and can still be edited
-or deleted outside the server.
+**Update model:** Agent-note never edits or deletes an existing note. An update
+is a new note carrying the complete current context; the newest closely
+relevant note wins while older versions remain searchable history. Files are
+not protected from normal filesystem access and can still be changed manually.
 
-## Layout
+## Architecture
 
+```text
+skills/agent-note/
+  SKILL.md                       model reasoning and workflow
+  references/conversation-import.md
+  scripts/agent-note             symlink-safe CLI launcher
+src/notes_mcp/
+  cli.py                         six JSON commands and stable exit codes
+  service.py                     deterministic create/import orchestration
+  conversation_import.py         exact raw transcript preservation
+  notes_store.py                 append-only Markdown storage and path guards
+  embeddings.py                  local hybrid search and embedding repair
 ```
+
+The skill decides what is worth saving, turns it into a durable note that will
+remain useful when found later, and selects useful tags. It preserves the
+meaning and context instead of merely shortening the source or producing a
+generic summary. The CLI and Python modules enforce the deterministic work
+after a command is invoked: UTF-8 input, validation, configured paths,
+timestamped collision-safe filenames, tag normalization, raw separation,
+guarded reads, best-effort embeddings, search ranking, and structured JSON
+results.
+
+There is no background service or transport adapter. Each command starts on
+demand and reads or writes the existing local files directly.
+
+## Data layout
+
+```text
 ~/.notes/
   .raw/
     conversations/
@@ -25,48 +49,54 @@ or deleted outside the server.
         metadata.json    # ID, dates, title, checksum
   2026-07-04/
     14-30-52.md          # one note
-    14-30-52.embedding   # its chunk vectors (auto-regenerated if lost)
+    14-30-52.embedding   # local chunk vectors
 ```
 
 Configure a different root with:
 
 - `~/.notesrc`: `{"notes_folder": "~/MyNotes"}`
-- `~/.notes` when `.notesrc` is absent (default)
+- `~/.notes` when `.notesrc` is absent
+
+Agent-note preserves this existing data format. No data migration is required.
 
 ## Privacy and data handling
 
 Agent-note is local-first, but it is not an encrypted vault:
 
-- Notes, imported transcripts, metadata, and embedding companions are ordinary
+- Notes, transcripts, metadata, and embedding companions are ordinary
   unencrypted files in the configured notes folder.
-- Never commit, push, or otherwise publish that notes folder. It may contain
-  private conversations and personal information.
-- The embedding model downloads once on first use (about 90 MB). Embedding
-  inference then runs locally through FastEmbed; note text and search queries
-  are not sent to a hosted embedding API by this server.
-- The connected MCP client receives tool inputs and results. Results can
-  include note text, snippets, metadata, and absolute paths on the local
-  machine. Review the privacy behavior of the client and model you connect.
-- “Append-only” describes the MCP tools, not operating-system enforcement.
-  Anyone or any process with access to the notes folder can change or remove
-  its files. Imported transcripts include a checksum for provenance, but the
-  server does not currently enforce that checksum.
+- Never commit or publish that folder. It may contain private conversations and
+  personal information.
+- FastEmbed downloads its model once, then embedding inference stays local.
+  Note text and queries are not sent to a hosted embedding API.
+- CLI results can include note text, snippets, metadata, and absolute paths.
+- “Append-only” describes Agent-note operations, not operating-system
+  enforcement. Imported transcripts include a checksum for provenance, but
+  Agent-note does not currently enforce it.
 
-## Tools
+## CLI
 
-| Tool | Purpose |
-|---|---|
-| `create_note(content, tags?, title?)` | Save a new note with normalized tags (append-only). Returns `path`, `title`, `tags`, `embedded`, `warning` (or `error` if content is empty) |
-| `import_conversation(content, original_date?, title?)` | Preserve a raw transcript and return a conversation ID plus instructions for the connected agent |
-| `search(query, limit?, tags?)` | Hybrid semantic + keyword + tag search over title, tags, and body. Close matches are ordered newest-first; weak pure-semantic hits are dropped; optional tag filtering requires all supplied tags |
-| `list_recent(days?, tags?)` | Recent notes, newest first, with optional tag filtering |
-| `list_tags()` | Existing normalized tags with usage counts |
-| `read_note(path)` | Full text of one note as JSON `{path, content}` (or `{error}`); paths from search/list |
+The six commands are:
 
-## Tags
+```text
+agent-note create --input PATH|- [--title TITLE] [--tag TAG ...]
+agent-note import --input PATH|- [--original-date DATE] [--title TITLE]
+agent-note search --query QUERY [--limit N] [--tag TAG ...]
+agent-note recent [--days N] [--tag TAG ...]
+agent-note tags
+agent-note read --path NOTE_PATH
+```
 
-Notes can have zero to eight tags. The model normally supplies 3-8 descriptive
-tags, and the storage layer makes them consistent:
+`create` and `import` read complete UTF-8 bodies from a file or standard input;
+they never require a body in a shell argument. Every result, including an
+error, is JSON on standard output. Exit status `0` means success, `1` means an
+operational failure, and `2` means invalid input or usage. Dependency
+diagnostics may still appear on standard error.
+
+### Notes and tags
+
+Notes accept zero to eight tags. The skill uses only a few tags that materially
+help retrieval; eight is a limit, not a target. Storage normalizes them:
 
 - lowercase
 - spaces and underscores changed to hyphens
@@ -74,172 +104,129 @@ tags, and the storage layer makes them consistent:
 - maximum 40 characters per tag
 - maximum eight unique tags per note
 
-For example, `MCP`, `Memory System`, and `conversation_import` become `mcp`,
-`memory-system`, and `conversation-import`. `list_tags` helps models reuse
-established tags instead of creating slightly different names. Search uses
-semantic meaning, words in the note, and tag matches together. Older notes
-that still contain a category remain compatible: their old category is read
-as a normalized legacy tag without rewriting the file.
+For example, `Memory System` and `conversation_import` become `memory-system`
+and `conversation-import`. Favor relevant topic tags and optionally one useful
+kind tag such as `idea`, `decision`, `preference`, or `session-handoff`. Reuse
+established tags when they fit, but do not force project or kind tags, add tags
+for completeness, or build a complex taxonomy. Avoid duplicate, near-synonym,
+and noisy tags. Existing category fields remain compatible and are read as
+legacy tags without rewriting old notes.
 
-## Current information and history
+### Search and current information
 
-Search uses relevance first (title and tags are embedded alongside the body).
-When several notes have close relevance scores (within 0.05), it orders those
-notes newest-first. This makes a newer update win over an older version of the
-same idea without allowing an unrelated recent note to outrank a clearly
-relevant older note. Weak pure-semantic matches are omitted so agents are not
-fed noise; keyword and tag hits still surface even when embedding scores are
-low. Unreadable notes are skipped rather than failing the whole search. The
-model still reads the dates: the newest relevant complete note is current, and
-older versions are history.
+Search combines local semantic similarity, keywords, and tag signals. Relevance
+stays primary. Results within 0.05 of one another are ordered newest-first, so
+a new version of the same idea wins without an unrelated recent note replacing
+a clearly relevant older result. Weak pure-semantic matches are omitted.
+Unreadable notes are skipped.
 
-Concurrent saves (e.g. multiple MCP clients writing at once) never collide:
-note filenames are claimed with an atomic exclusive-create, so two notes in
-the same second always get distinct files instead of one overwriting the
-other. Embedding companions are also replaced atomically and carry a hash of
-their note text. If a Markdown note is edited manually, its stale embedding is
-detected and rebuilt automatically during the next search.
+Embedding companions include a content hash and are replaced atomically. If a
+Markdown note changes manually or an embedding is missing or corrupt, the next
+search rebuilds it. A failed embedding never discards a successfully saved
+note.
 
-## Conversation import workflow
+Concurrent saves claim filenames with exclusive creation, so notes created in
+the same second receive distinct files rather than overwriting each other.
 
-1. `import_conversation` saves the supplied transcript unchanged as
-   `.raw/conversations/<conversation-id>/conversation.txt`. Metadata is kept
-   separately, so the raw text is never rewritten.
-2. The result returns the conversation ID and tells the connected agent to
-   continue processing the transcript it already has in its chat context.
-3. The agent extracts only durable decisions, knowledge, projects, actions,
-   user context, and reflections. It ignores casual chatter and combines
-   closely related details rather than creating duplicate notes.
-4. The agent calls the existing `create_note` tool once for every extracted
-   item, with a standalone title, complete content, 3-8 useful tags, and the
-   source conversation ID. When supplied, the original conversation date is
-   included in the same source block.
-5. Each extracted item therefore receives the same dated Markdown filename,
-   embedding, and search index as any manually created note.
-6. Search handles recall normally. The importer contains no separate ranking,
-   deduplication, database, or "newest wins" implementation.
+## Complete conversation import
 
-The source conversation ID is appended to each derived note for traceability.
-Raw transcripts are not indexed because they use `.txt`, not `.md`. Everything
-below `.raw/` is excluded from note indexing and `read_note`, even if a raw
-source happens to use a `.md` filename.
+Import is deliberately a model-plus-command workflow:
 
-This design does not use MCP sampling, because many desktop clients do not
-support that optional method. The same agent that called `import_conversation`
-does the reasoning and follows with ordinary `create_note` calls. Embedding
-generation remains local.
+1. Read the complete source.
+2. Run `import` once. The command saves the exact supplied bytes under
+   `.raw/conversations/<conversation-id>/conversation.txt` and writes separate
+   metadata.
+3. Identify the genuinely durable ideas, decisions, preferences, actions or
+   next steps, corrections, and unresolved questions that actually exist.
+4. Create one broad session handoff first, using concise synthesis rather than
+   merely shortening the transcript, and end it with the exact returned source
+   block.
+5. Search for the main durable subjects.
+6. Create only useful, non-duplicate focused notes for decisions, projects,
+   preferences, actions, next actions, ideas, reviews, and other durable
+   context. Preserve why ideas matter, the reasons for decisions, when
+   preferences apply, and the uncertainty of assumptions, proposals, and
+   unresolved questions. Skip casual chatter, do not label every note a
+   summary, and end every note with the same source block.
+7. Briefly check that each identified important item appears in the broad
+   handoff or a focused note. Add or expand only what is missing; do not copy
+   every turn, force empty categories, or target a fixed note count.
+8. Search for the broad handoff to verify retrieval.
 
-## Requirements
+Raw preservation alone is not a completed import. Raw files are not indexed:
+they use `.txt`, and everything below `.raw/` is excluded from normal note
+indexing and guarded reads.
+
+## Install and run
+
+Requirements:
 
 - Python 3.12 or newer
 - [uv](https://docs.astral.sh/uv/getting-started/installation/)
-- An MCP client that can launch a local stdio server
-
-The project is designed to be portable across macOS, Linux, and Windows.
-Automated fast tests run on Linux; contributions that improve coverage on
-other platforms are welcome.
-
-## Install and run
+- A shell-capable agent that supports repository-owned skills
 
 ```bash
 git clone https://github.com/JLDynamics/Agent-note.git
 cd Agent-note
 uv sync
 
-# Optional: download and initialize the embedding model now instead of
-# waiting for the first note or search.
-uv run python -c "from notes_mcp.embeddings import embed_text; embed_text('warm up')"
-
-# Start the stdio MCP server directly.
-uv run python -m notes_mcp.server
+printf 'A complete note body.\n' | \
+  uv run agent-note create --input - --title "Example" --tag example
+uv run agent-note search --query "example"
 ```
 
-The first embedding operation downloads roughly 90 MB of model files. It can
-therefore take longer and requires internet access. Later embedding and search
-operations use the downloaded model locally.
-
-For a client configured outside this repository, add an MCP server entry and
-replace `<path-to-this-repo>` with the absolute path to your clone:
-
-```json
-{
-  "mcpServers": {
-    "notes": {
-      "command": "uv",
-      "args": ["run", "python", "-m", "notes_mcp.server"],
-      "cwd": "<path-to-this-repo>"
-    }
-  }
-}
-```
-
-The checked-in `.mcp.json` and `.codex/config.toml` use the same portable `uv`
-command when a client opens this repository as its project directory. They do
-not contain a user-specific home path.
-
-## Basic usage
-
-Once the client has connected, ask it to use the MCP tools. For example:
-
-- “Save a note that the deployment checklist needs a database backup step.”
-- “Search my notes for the deployment checklist.”
-- “Show notes tagged `python` from the last seven days.”
-- “Import this complete conversation and extract the durable decisions.”
-
-The agent should call `create_note`, `search`, `list_recent`, `list_tags`,
-`read_note`, or `import_conversation` as appropriate. Conversation import is a
-two-part workflow: the tool first preserves the source transcript, then the
-connected agent must create standalone durable notes from it.
-
-Optional: initialize a **local or private-only** Git repository inside the
-notes folder if you want file history. Never push that repository to a public
-remote.
-
-## Recommended global CLAUDE.md section
-
-Replace any old "Notes CLI" section in `~/.claude/CLAUDE.md` with:
-
-```markdown
-## Notes (MCP)
-
-I manage notes ONLY through the notes MCP tools (create_note,
-import_conversation, search, list_recent, list_tags, read_note). Notes are
-append-only and use tags instead of categories.
-
-- **Save flow:** when I ask to save anything (idea, learning, text, or a
-  linked article to summarize): gather the content (ask a follow-up or
-  fetch the article), infer a title and 3-8 useful tags, then create_note.
-  Reuse established tags from list_tags when they fit. Then read it back and
-  offer to discuss/develop the idea with your own insights. When the
-  discussion ends, create_note again with the COMPLETE updated context
-  including a summary of the discussion.
-- **Recall flow:** when I ask about something saved: search, read the
-  closely relevant results newest-first — the newest relevant complete note on
-  a topic is the truth, while older ones are history. Do not let a newer but
-  unrelated note override a more relevant result. Offer the same
-  discuss/develop engagement; on finish, create_note with the complete updated
-  context.
-- **Conversation import:** when I provide a complete exported conversation,
-  call import_conversation once with the transcript exactly as received and
-  its original date when known. After it returns, immediately extract only
-  durable information from that transcript and call create_note once for each
-  standalone note. Add the exact source block returned by the
-  import tool to every derived note. This also preserves the original date when
-  supplied. Do not stop after merely saving the raw
-  transcript, and do not create duplicate notes from the same fact.
-- **Update discipline:** never save fragments. Every new note on an
-  existing topic must stand alone as the current, complete truth of it.
-```
-
-## Tests
+The first embedding operation downloads roughly 90 MB and requires internet
+access. Later embedding and search operations use the downloaded model locally.
+To initialize it ahead of time:
 
 ```bash
-uv run pytest            # fast suite (fake embeddings)
-uv run pytest -m slow    # real-model integration test (~90 MB download)
+uv run python -c "from notes_mcp.embeddings import embed_text; embed_text('warm up')"
 ```
 
-The fast suite uses deterministic fake embeddings and does not download the
-model. See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidance and
+## Install the shared skill
+
+Keep [`skills/agent-note`](skills/agent-note) as the one canonical skill folder.
+Its launcher resolves the physical repository path with `pwd -P`, so a
+user-level directory symlink works from unrelated projects without copying the
+skill or globally installing the Python package.
+
+After confirming the active agent runtime’s user skill directory, create a
+directory symlink. Common locally verified paths are:
+
+```bash
+AGENT_NOTE_REPO="/absolute/path/to/Agent-note"
+
+# Codex
+ln -s "$AGENT_NOTE_REPO/skills/agent-note" \
+  "$HOME/.codex/skills/agent-note"
+
+# Claude Code
+ln -s "$AGENT_NOTE_REPO/skills/agent-note" \
+  "$HOME/.claude/skills/agent-note"
+```
+
+Then:
+
+1. Confirm the destination with `readlink`.
+2. From an unrelated directory, run the linked
+   `scripts/agent-note tags` launcher and confirm JSON output.
+3. Start a fresh agent session and invoke `$agent-note`.
+4. Test `tags` or `search` before the first write.
+
+Skill discovery and refresh behavior are runtime-specific and should be live
+tested. Claude Desktop does not use a watched local skill folder; follow its
+supported skill installation flow instead of inventing a filesystem link.
+
+## Development
+
+```bash
+uv lock --check
+uv run --locked pytest -q
+uv run pytest -m slow    # real-model integration test, downloads the model
+```
+
+The fast suite uses deterministic fake embeddings. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for development guidance and
 [SECURITY.md](SECURITY.md) for private vulnerability reporting.
 
 ## License

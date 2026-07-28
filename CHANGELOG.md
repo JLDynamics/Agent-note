@@ -2,6 +2,21 @@
 
 Notable changes to Agent-note are documented here.
 
+## [Unreleased]
+
+### Changed
+
+- Replaced the transport-based interface with one repository-owned skill and a
+  six-command, noninteractive JSON CLI.
+- Moved deterministic create and conversation-import orchestration into a
+  reusable service layer while preserving the existing Markdown, raw
+  transcript, metadata, embedding, and search formats.
+
+### Removed
+
+- The legacy FastMCP server adapter, project server registrations, and
+  transport-only dependency and tests.
+
 ## [0.1.0] - 2026-07-23
 
 Initial public version.
@@ -22,4 +37,4 @@ Initial public version.
   user-configured notes folder.
 - Reads exclude raw source material and reject paths outside the notes folder.
 - Atomic file creation prevents concurrent writers from overwriting notes.
-- Project MCP configuration avoids machine-specific paths.
+- The original project server configuration avoided machine-specific paths.

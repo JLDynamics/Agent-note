@@ -1,12 +1,12 @@
 [project]
-name = "notes-mcp"
+name = "agent-note"
 version = "0.1.0"
-description = "An append-only local notes server for the Model Context Protocol"
+description = "A skill-first, append-only local note system with a JSON CLI"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.12"
-keywords = ["mcp", "notes", "knowledge-management", "embeddings", "local-first"]
+keywords = ["notes", "knowledge-management", "embeddings", "local-first", "agent-skills"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Programming Language :: Python :: 3",
@@ -14,9 +14,11 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "mcp[cli]>=1.27.2",
     "fastembed>=0.6",
 ]
+
+[project.scripts]
+agent-note = "notes_mcp.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/JLDynamics/Agent-note"

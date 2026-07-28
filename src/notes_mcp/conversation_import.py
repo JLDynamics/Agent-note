@@ -1,7 +1,7 @@
 """Raw source storage for imported conversations.
 
-The MCP tool saves source text here, then hands reasoning back to the connected
-agent. Durable memory is saved through the existing create_note tool.
+The CLI saves source text here, then hands semantic extraction back to the
+agent. Durable memory is saved through subsequent create commands.
 """
 
 import hashlib
@@ -20,8 +20,9 @@ def save_raw_conversation(content, title=None, original_date=None, now=None):
     """Save the transcript exactly as received plus separate JSON metadata.
 
     The transcript is a .txt file so the normal note index never mistakes it
-    for a derived note. Exclusive creation ensures this tool never overwrites
-    an existing raw record; normal filesystem access can still change it.
+    for a derived note. Exclusive creation ensures this operation never
+    overwrites an existing raw record; normal filesystem access can still
+    change it.
     """
     if not isinstance(content, str) or not content.strip():
         raise ValueError("conversation content cannot be empty")

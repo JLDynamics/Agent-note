@@ -471,7 +471,7 @@ def test_title_influences_semantic_ranking(notes_folder):
     notes_store.create_entry(
         "details about the mechanism and wiring",
         title="Conversation import design",
-        tags=["mcp"],
+        tags=["conversation-import"],
     )
     notes_store.create_entry(
         "details about the mechanism and wiring",

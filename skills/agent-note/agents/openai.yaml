@@ -1,0 +1,4 @@
+interface:
+  display_name: "Agent-note"
+  short_description: "Save, search, and import local durable notes"
+  default_prompt: "Use $agent-note to save, search, or import durable local notes safely."

@@ -54,10 +54,10 @@ def test_title_with_quotes_round_trips(notes_folder):
 
 def test_create_entry_cleans_invalid_tags_but_saves_anyway(notes_folder):
     path, warning = notes_store.create_entry(
-        "text", tags=["", None, "  MCP Server  "], now=FIXED_NOW
+        "text", tags=["", None, "  Agent Runtime  "], now=FIXED_NOW
     )
     assert path.exists()
-    assert notes_store.note_info(path)["tags"] == ["mcp-server"]
+    assert notes_store.note_info(path)["tags"] == ["agent-runtime"]
     assert "invalid tags" in warning
 
 
@@ -91,11 +91,11 @@ def test_list_recent_and_list_tags_survive_bad_files(notes_folder, monkeypatch):
 
 
 def test_normalize_tags_limits_deduplicates_and_cleans():
-    values = ["MCP", "mcp", "Memory System", "python_code"] + [
+    values = ["Local", "local", "Memory System", "python_code"] + [
         f"Tag {index}" for index in range(10)
     ]
     tags, warning = notes_store.normalize_tags(values)
-    assert tags[:3] == ["mcp", "memory-system", "python-code"]
+    assert tags[:3] == ["local", "memory-system", "python-code"]
     assert len(tags) == notes_store.MAX_TAGS
     assert "first 8 unique tags" in warning
 
@@ -228,9 +228,9 @@ def test_list_recent_filters_by_days_and_tags(notes_folder, monkeypatch):
 
 
 def test_list_tags_counts_usage_and_reads_legacy_category(notes_folder):
-    notes_store.create_entry("one", tags=["MCP", "memory"], now=FIXED_NOW)
+    notes_store.create_entry("one", tags=["Agent", "memory"], now=FIXED_NOW)
     notes_store.create_entry(
-        "two", tags=["mcp", "python"],
+        "two", tags=["agent", "python"],
         now=datetime(2026, 7, 4, 15, 0, 0),
     )
     legacy = notes_folder / "2026-05-14-205701-old.md"
@@ -241,7 +241,7 @@ def test_list_tags_counts_usage_and_reads_legacy_category(notes_folder):
 
     assert notes_store.note_info(legacy)["tags"] == ["technical-insights"]
     assert notes_store.list_tags() == [
-        {"tag": "mcp", "count": 2},
+        {"tag": "agent", "count": 2},
         {"tag": "memory", "count": 1},
         {"tag": "python", "count": 1},
         {"tag": "technical-insights", "count": 1},

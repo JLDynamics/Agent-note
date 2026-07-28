@@ -14,8 +14,8 @@ The optional real-model test downloads the embedding model and can be run with
 
 ## Making changes
 
-- Keep notes append-only through the MCP tool surface. Updates should create a
-  new complete note rather than editing an existing note.
+- Keep notes append-only through the CLI and storage surface. Updates should
+  create a new complete note rather than editing an existing note.
 - Preserve raw imported conversations exactly as supplied. Metadata belongs in
   the separate sidecar file.
 - Add or update tests for behavior changes.

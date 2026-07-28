@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "notes": {
-      "command": "uv",
-      "args": ["run", "python", "-m", "notes_mcp.server"]
-    }
-  }
-}

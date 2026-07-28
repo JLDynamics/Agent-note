@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
+repo_root=$(CDPATH= cd -- "$script_dir/../../.." && pwd -P)
+
+if ! command -v uv >/dev/null 2>&1; then
+    printf '%s\n' '{"error":"uv executable not found"}'
+    exit 127
+fi
+
+exec uv run --project "$repo_root" agent-note "$@"
