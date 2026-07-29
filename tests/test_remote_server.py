@@ -47,6 +47,15 @@ def test_configuration_rejects_unsafe_network_settings(field, value, message):
         settings(**{field: value}).validate()
 
 
+def test_transport_security_allows_only_configured_public_host():
+    security = remote_server._transport_security(settings())
+
+    assert security.enable_dns_rebinding_protection is True
+    assert "notes.example.com" in security.allowed_hosts
+    assert "127.0.0.1:*" in security.allowed_hosts
+    assert "*" not in security.allowed_hosts
+
+
 class FakeSigningKey:
     key = "test-key"
 

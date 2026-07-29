@@ -11,12 +11,14 @@ import argparse
 import os
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlsplit
 
 import jwt
 from jwt import PyJWKClient
 from mcp.server import MCPServer
 from mcp.server.auth.provider import AccessToken, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
+from mcp.server.transport_security import TransportSecuritySettings
 from pydantic import AnyHttpUrl
 
 from agent_note import embeddings, notes_store, service
@@ -226,6 +228,27 @@ def create_remote_server(
     return server
 
 
+def _transport_security(settings: RemoteSettings) -> TransportSecuritySettings:
+    """Allow only loopback and the configured public tunnel hostname."""
+    public_host = urlsplit(settings.public_url).netloc
+    return TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=[
+            "127.0.0.1:*",
+            "localhost:*",
+            "[::1]:*",
+            public_host,
+        ],
+        allowed_origins=[
+            "http://127.0.0.1:*",
+            "http://localhost:*",
+            "http://[::1]:*",
+            "https://claude.ai",
+            "https://claude.com",
+        ],
+    )
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="agent-note-mcp",
@@ -259,6 +282,7 @@ def main(argv: list[str] | None = None) -> int:
         streamable_http_path="/mcp",
         stateless_http=True,
         json_response=True,
+        transport_security=_transport_security(settings),
     )
     return 0
 
