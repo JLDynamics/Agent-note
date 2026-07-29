@@ -17,8 +17,15 @@ dependencies = [
     "fastembed>=0.6",
 ]
 
+[project.optional-dependencies]
+remote = [
+    "mcp==2.0.0",
+    "pyjwt[crypto]>=2.10,<3",
+]
+
 [project.scripts]
 agent-note = "agent_note.cli:main"
+agent-note-mcp = "agent_note.remote_server:main"
 
 [project.urls]
 Homepage = "https://github.com/JLDynamics/Agent-note"
@@ -27,6 +34,8 @@ Issues = "https://github.com/JLDynamics/Agent-note/issues"
 
 [dependency-groups]
 dev = [
+    "mcp==2.0.0",
+    "pyjwt[crypto]>=2.10,<3",
     "pytest>=8.0",
 ]
 

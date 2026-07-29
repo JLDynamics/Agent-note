@@ -155,7 +155,7 @@ def test_durable_capture_uses_lightweight_title_and_tag_guidance():
     assert "`session-handoff` only when that kind tag helps retrieval" in import_text
 
 
-def test_repository_has_no_mcp_fallback_or_dependency():
+def test_repository_keeps_skill_primary_and_mcp_remote_only():
     repo = Path(__file__).parents[1]
     project = tomllib.loads((repo / "pyproject.toml").read_text())
 
@@ -164,7 +164,13 @@ def test_repository_has_no_mcp_fallback_or_dependency():
     assert (repo / "src" / "agent_note").is_dir()
     assert not (repo / "src" / "notes_mcp").exists()
     assert not (repo / "src" / "agent_note" / "server.py").exists()
-    assert all(
-        not dependency.lower().startswith("mcp")
+    assert (repo / "src" / "agent_note" / "remote_server.py").exists()
+    assert "agent-note-mcp" in project["project"]["scripts"]
+    assert not any(
+        dependency.lower().startswith("mcp")
         for dependency in project["project"]["dependencies"]
+    )
+    assert any(
+        dependency.lower().startswith("mcp==")
+        for dependency in project["project"]["optional-dependencies"]["remote"]
     )

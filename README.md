@@ -68,8 +68,16 @@ UTF-8 input, validation, configured paths, collision-safe filenames, tag
 normalization, raw separation, guarded reads, best-effort embeddings, search
 ranking, and structured results.
 
-There is no background service, MCP server, or transport adapter. Each operation
-starts on demand and reads or writes the existing local files directly.
+The default installation runs no background service or transport adapter. Each
+operation starts on demand and reads or writes the existing local files
+directly.
+
+An optional authenticated remote MCP doorway is also available for clients that
+cannot run the local skill, such as Claude on a phone. It is a thin adapter over
+the same service functions; it does not replace the skill or duplicate storage.
+The doorway is disabled unless every HTTPS and OAuth setting is supplied, and it
+binds only to loopback so a separately configured secure tunnel can publish it.
+See [Remote MCP doorway](docs/remote-mcp.md) for the security model and setup.
 
 ## Install and connect the skill
 
