@@ -48,6 +48,8 @@ def test_create_accepts_stdin_and_returns_public_result_shape(
             "CLI note",
             "--tag",
             "Memory System",
+            "--summary",
+            "A complete note body was saved from standard input.",
         ],
     )
 
@@ -56,11 +58,16 @@ def test_create_accepts_stdin_and_returns_public_result_shape(
         "path",
         "title",
         "tags",
+        "summary",
         "embedded",
         "warning",
     }
     assert result["title"] == "CLI note"
     assert result["tags"] == ["memory-system"]
+    assert result["summary"] == (
+        "A complete note body was saved from standard input."
+    )
+    assert notes_store.note_info(result["path"])["summary"] == result["summary"]
     assert "Complete note body ☕" in notes_store.read_note(result["path"])
 
 
@@ -123,6 +130,7 @@ def test_search_recent_tags_and_read_use_core_results(notes_folder, capsys):
     assert exit_code == cli.EXIT_OK
     assert read_result == {
         "path": created["path"],
+        "summary": None,
         "content": notes_store.read_note(created["path"]),
     }
 

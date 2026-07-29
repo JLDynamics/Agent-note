@@ -17,16 +17,19 @@ def test_create_service_owns_storage_embedding_and_result(notes_folder):
         "Complete durable context",
         tags=["Memory System"],
         title="Durable context",
+        summary="The note preserves complete durable context.",
     )
 
     assert result == {
         "path": result["path"],
         "title": "Durable context",
         "tags": ["memory-system"],
+        "summary": "The note preserves complete durable context.",
         "embedded": True,
         "warning": None,
     }
     assert "Complete durable context" in notes_store.read_note(result["path"])
+    assert notes_store.note_info(result["path"])["summary"] == result["summary"]
     assert embeddings.embedding_path(result["path"]).exists()
 
 

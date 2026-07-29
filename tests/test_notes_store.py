@@ -252,6 +252,10 @@ def test_read_note_returns_content(notes_folder):
     path, _ = notes_store.create_entry("readable", now=FIXED_NOW)
     assert "readable" in notes_store.read_note(str(path))
 
+    legacy = _legacy_note(notes_folder, "2026-05-14-205701-old.md")
+    legacy_content = notes_store.read_note(str(legacy))
+    assert notes_store.summary_from_note_text(legacy_content) is None
+
 
 def test_read_note_refuses_outside_paths(notes_folder, tmp_path):
     secret = tmp_path / "secret.txt"

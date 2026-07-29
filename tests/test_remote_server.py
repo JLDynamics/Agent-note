@@ -167,17 +167,23 @@ def test_remote_create_delegates_to_existing_service(monkeypatch):
     monkeypatch.setattr(
         remote_server.service,
         "create_note",
-        lambda content, tags=None, title=None: {
+        lambda content, tags=None, title=None, summary=None: {
             "content": content,
             "tags": tags,
             "title": title,
+            "summary": summary,
         },
     )
 
     result = asyncio.run(
         server.call_tool(
             "create_note",
-            {"content": "Remember this", "title": "Test", "tags": ["remote"]},
+            {
+                "content": "Remember this",
+                "title": "Test",
+                "tags": ["remote"],
+                "summary": "A remote note to remember.",
+            },
         )
     )
 
@@ -185,4 +191,5 @@ def test_remote_create_delegates_to_existing_service(monkeypatch):
         "content": "Remember this",
         "tags": ["remote"],
         "title": "Test",
+        "summary": "A remote note to remember.",
     }
