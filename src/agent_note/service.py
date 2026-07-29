@@ -7,10 +7,16 @@ def create_note(
     content: str,
     tags: list[str] | None = None,
     title: str | None = None,
+    summary: str | None = None,
 ) -> dict:
     """Create and best-effort embed one note, returning the public result."""
     try:
-        path, warning = notes_store.create_entry(content, tags=tags, title=title)
+        path, warning = notes_store.create_entry(
+            content,
+            tags=tags,
+            title=title,
+            summary=summary,
+        )
     except ValueError as exc:
         return {"error": str(exc)}
 
@@ -20,6 +26,7 @@ def create_note(
         "path": str(path),
         "title": info["title"],
         "tags": info["tags"],
+        "summary": info["summary"],
         "embedded": embedded,
         "warning": warning,
     }
@@ -55,7 +62,8 @@ def import_conversation(
             "a broad session handoff covering its important themes. Then run "
             "search for related notes and run create for each useful, "
             "non-duplicate standalone item with a title, a few useful tags "
-            "(up to eight) that help retrieval, and "
+            "(up to eight) that help retrieval, a concise factual one- or "
+            "two-sentence summary, and "
             f"this exact final source block:\n{source_block}"
         ),
     }

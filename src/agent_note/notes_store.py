@@ -124,6 +124,15 @@ def normalize_tags(tags):
     return normalized, warning
 
 
+def normalize_summary(summary):
+    """Return (clean summary, warning) without risking note-content loss."""
+    if summary is None:
+        return None, None
+    if not isinstance(summary, str) or not summary.strip():
+        return None, "Summary must be non-empty text — saved without summary."
+    return summary.strip(), None
+
+
 def _stored_tags(meta):
     """Read inline JSON tags and treat an old category as a legacy tag."""
     value = meta.get("tags")
@@ -142,7 +151,15 @@ def _stored_tags(meta):
     return tags
 
 
-def create_entry(content, tags=None, title=None, now=None):
+def _stored_summary(meta):
+    """Read an optional plain-text summary without assuming it exists."""
+    value = meta.get("summary")
+    if not isinstance(value, str) or not value.strip():
+        return None
+    return value.strip()
+
+
+def create_entry(content, tags=None, title=None, now=None, summary=None):
     """Create a new note file in today's dated folder. Never overwrites.
 
     Returns (path, warning). Invalid tag metadata is cleaned or dropped, but
@@ -155,7 +172,11 @@ def create_entry(content, tags=None, title=None, now=None):
     folder = get_notes_folder() / now.strftime("%Y-%m-%d")
     folder.mkdir(parents=True, exist_ok=True)
 
-    normalized_tags, warning = normalize_tags(tags)
+    normalized_tags, tag_warning = normalize_tags(tags)
+    normalized_summary, summary_warning = normalize_summary(summary)
+    warning = " ".join(
+        value for value in (tag_warning, summary_warning) if value
+    ) or None
 
     note_title = str(title) if title is not None else _default_title(now)
     lines = [
@@ -165,6 +186,10 @@ def create_entry(content, tags=None, title=None, now=None):
     ]
     if normalized_tags:
         lines.append(f"tags: {json.dumps(normalized_tags, ensure_ascii=False)}")
+    if normalized_summary is not None:
+        lines.append(
+            f"summary: {json.dumps(normalized_summary, ensure_ascii=False)}"
+        )
     lines += ["---", "", content, ""]
     entry = "\n".join(lines)
 
@@ -237,6 +262,7 @@ def note_info(path):
         "date": date,
         "title": meta.get("title", path.stem),
         "tags": _stored_tags(meta),
+        "summary": _stored_summary(meta),
         "text": body,
     }
 
@@ -297,3 +323,9 @@ def read_note(path_str):
     if path.suffix.lower() != ".md":
         raise ValueError(f"Refused: {path_str} is not a Markdown note")
     return path.read_text(encoding="utf-8")
+
+
+def summary_from_note_text(text):
+    """Return optional summary metadata from a previously guarded note read."""
+    meta, _ = parse_frontmatter(text)
+    return _stored_summary(meta)

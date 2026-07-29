@@ -181,9 +181,15 @@ def create_remote_server(
         content: str,
         title: str | None = None,
         tags: list[str] | None = None,
+        summary: str | None = None,
     ) -> dict[str, Any]:
         """Create one append-only note after the user explicitly asks to save it."""
-        return service.create_note(content, tags=tags, title=title)
+        return service.create_note(
+            content,
+            tags=tags,
+            title=title,
+            summary=summary,
+        )
 
     @server.tool()
     def import_conversation(
@@ -221,9 +227,14 @@ def create_remote_server(
         return notes_store.list_tags()
 
     @server.tool()
-    def read_note(path: str) -> dict[str, str]:
+    def read_note(path: str) -> dict[str, Any]:
         """Read one guarded Markdown note path returned by Agent-note."""
-        return {"path": path, "content": notes_store.read_note(path)}
+        content = notes_store.read_note(path)
+        return {
+            "path": path,
+            "summary": notes_store.summary_from_note_text(content),
+            "content": content,
+        }
 
     return server
 

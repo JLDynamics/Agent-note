@@ -41,6 +41,10 @@ def _build_parser():
     )
     create.add_argument("--title")
     create.add_argument("--tag", action="append", dest="tags")
+    create.add_argument(
+        "--summary",
+        help="Store a caller-written factual one- or two-sentence brief summary.",
+    )
 
     import_command = commands.add_parser(
         "import", help="Preserve one complete raw conversation."
@@ -91,6 +95,7 @@ def _run(args):
             _read_utf8_input(args.input),
             tags=args.tags,
             title=args.title,
+            summary=args.summary,
         )
         return result, EXIT_USAGE_ERROR if "error" in result else EXIT_OK
 
@@ -121,7 +126,11 @@ def _run(args):
             content = notes_store.read_note(args.path)
         except (ValueError, OSError) as exc:
             return {"error": str(exc)}, EXIT_USAGE_ERROR
-        return {"path": str(args.path), "content": content}, EXIT_OK
+        return {
+            "path": str(args.path),
+            "summary": notes_store.summary_from_note_text(content),
+            "content": content,
+        }, EXIT_OK
 
     raise CliUsageError(f"unknown command: {args.command}")
 
